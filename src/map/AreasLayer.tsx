@@ -10,7 +10,7 @@ export default function AreasLayer() {
   useEffect(() => {
     const layer = L.geoJSON(undefined, {
       style: () => ({ weight: 2, opacity: 1, fillOpacity: 0.15 }),
-      pointToLayer: (f, latlng) => L.marker(latlng),
+      pointToLayer: (_f, latlng) => L.marker(latlng),
       onEachFeature: (f, l) => {
         const p = (f.properties ?? {}) as any;
         const n = p?.name ?? "—";
