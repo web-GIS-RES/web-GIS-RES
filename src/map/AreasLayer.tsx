@@ -1,42 +1,73 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useMap } from "react-leaflet";
-import L, { GeoJSON } from "leaflet";
-import { fetchAreasBBox } from "../lib/supa";
+import L from "leaflet";
+
+const API = import.meta.env.VITE_SUPABASE_URL + "/rest/v1/v_areas_geojson";
+const API_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export default function AreasLayer() {
   const map = useMap();
-  const layerRef = useRef<GeoJSON | null>(null);
 
   useEffect(() => {
+    // Δημιουργία ξεχωριστού pane για τα δεδομένα
+    if (!map.getPane("areasPane")) {
+      map.createPane("areasPane");
+      const pane = map.getPane("areasPane");
+      if (pane) pane.style.zIndex = "250"; // κάτω από markers draw-control
+    }
+
+    // GeoJSON layer
     const layer = L.geoJSON(undefined, {
-	  interactive: false,
-      style: () => ({ weight: 2, opacity: 1, fillOpacity: 0.15 }),
-      pointToLayer: (_f, latlng) => L.marker(latlng),
+      interactive: false, // μην πιάνει clicks (για να μην παρεμβαίνει στη σχεδίαση)
+      pane: "areasPane",
+      style: () => ({
+        color: "blue",
+        weight: 2,
+        opacity: 1,
+        fillOpacity: 0.15
+      }),
+      pointToLayer: (_f, latlng) =>
+        L.marker(latlng, { interactive: false }), // markers επίσης μη-διαδραστικοί
       onEachFeature: (f, l) => {
         const p = (f.properties ?? {}) as any;
         const n = p?.name ?? "—";
         l.bindPopup(`<b>${n}</b>`);
       }
-    });
-    layer.addTo(map);
-    layerRef.current = layer;
+    }).addTo(map);
 
-    const load = async () => {
+    // Συνάρτηση φόρτωσης δεδομένων με BBOX
+    const loadData = async () => {
       const b = map.getBounds();
-      const fc = await fetchAreasBBox([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]);
-      layer.clearLayers().addData(fc as any);
+      const q = `${API}?select=data&id=eq.id&bbox=st_makeenvelope(${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()},4326)`;
+      try {
+        const resp = await fetch(q, {
+          headers: { apikey: API_KEY, Authorization: `Bearer ${API_KEY}` }
+        });
+        if (!resp.ok) {
+          console.error("Supabase error", await resp.text());
+          return;
+        }
+        const rows = await resp.json();
+        layer.clearLayers();
+        for (const r of rows) {
+          if (r.data) layer.addData(r.data);
+        }
+      } catch (err) {
+        console.error("Network error", err);
+      }
     };
 
-    load(); // αρχικό
-    map.on("moveend", load);
+    loadData();
 
-    const reload = () => load();       // custom event μετά το POST
-    map.on("reload-areas", reload);
+    // Reload όταν αλλάζει το BBOX
+    map.on("moveend", loadData);
+    // Reload όταν ζητήσει άλλο component (π.χ. μετά από draw)
+    map.on("reload-areas", loadData);
 
     return () => {
-      map.off("moveend", load);
-      map.off("reload-areas", reload);
       map.removeLayer(layer);
+      map.off("moveend", loadData);
+      map.off("reload-areas", loadData);
     };
   }, [map]);
 
