@@ -1,20 +1,27 @@
 import { useEffect } from "react";
+import { useMap } from "react-leaflet";
 import L from "leaflet";
-import "leaflet/dist/leaflet.css";
 
 const API = import.meta.env.VITE_SUPABASE_URL + "/rest/v1/rpc/fn_areas_bbox";
 const API_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-interface Props {
-  map: L.Map;
-}
+export default function AreasLayer() {
+  const map = useMap();
 
-export default function AreasLayer({ map }: Props) {
   useEffect(() => {
+    // ξεχωριστό pane για να μην «κλέβει» events από το draw
+    if (!map.getPane("areasPane")) {
+      map.createPane("areasPane");
+      const pane = map.getPane("areasPane");
+      if (pane) pane.style.zIndex = "250";
+    }
+
     const layer = L.geoJSON(undefined, {
+      pane: "areasPane",
       interactive: false,
       style: () => ({ weight: 2, opacity: 1, fillOpacity: 0.15 }),
-      pointToLayer: (_f, latlng) => L.marker(latlng),
+      pointToLayer: (_f, latlng) =>
+        L.marker(latlng, { interactive: false, keyboard: false }),
       onEachFeature: (f, l) => {
         const p = (f.properties ?? {}) as any;
         const n = p?.name ?? "—";
@@ -30,7 +37,6 @@ export default function AreasLayer({ map }: Props) {
         maxx: b.getEast(),
         maxy: b.getNorth()
       };
-
       try {
         const resp = await fetch(API, {
           method: "POST",
@@ -41,12 +47,10 @@ export default function AreasLayer({ map }: Props) {
           },
           body: JSON.stringify(body)
         });
-
         if (!resp.ok) {
           console.error("Supabase RPC error:", await resp.text());
           return;
         }
-
         const fc = await resp.json();
         layer.clearLayers().addData(fc as any);
       } catch (err) {
@@ -54,11 +58,13 @@ export default function AreasLayer({ map }: Props) {
       }
     };
 
-    map.on("moveend", loadData);
     loadData();
+    map.on("moveend", loadData);
+    map.on("reload-areas", loadData);
 
     return () => {
       map.off("moveend", loadData);
+      map.off("reload-areas", loadData);
       map.removeLayer(layer);
     };
   }, [map]);

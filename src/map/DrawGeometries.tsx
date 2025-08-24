@@ -1,13 +1,13 @@
 import { useEffect } from "react";
+import { useMap } from "react-leaflet";
 import L from "leaflet";
-import "leaflet-draw/dist/leaflet.draw.css";
 import "leaflet-draw";
 
-interface Props {
-  map: L.Map;
-}
+const CREATE_API = "/.netlify/functions/create-area";
 
-export default function DrawGeometries({ map }: Props) {
+export default function DrawGeometries() {
+  const map = useMap();
+
   useEffect(() => {
     const drawnItems = new L.FeatureGroup().addTo(map);
 
@@ -17,52 +17,59 @@ export default function DrawGeometries({ map }: Props) {
         polygon: {
           showArea: true,
           allowIntersection: false,
-          finishOnDoubleClick: false   // 🔽 επιτρέπει περισσότερες από 3 κορυφές
+          finishOnDoubleClick: false  // αποτρέπει το πρόωρο «κλείσιμο»
         },
         polyline: false,
         rectangle: false,
         circle: false,
         circlemarker: false
       },
-      edit: {
-        featureGroup: drawnItems,
-        edit: false,
-        remove: false
-      }
+      edit: { featureGroup: drawnItems, edit: false, remove: false }
     });
 
     const onDrawStart = () => map.doubleClickZoom.disable();
-    const onDrawStop = () => map.doubleClickZoom.enable();
+    const onDrawStop  = () => map.doubleClickZoom.enable();
     map.on((L as any).Draw.Event.DRAWSTART, onDrawStart);
-    map.on((L as any).Draw.Event.DRAWSTOP, onDrawStop);
+    map.on((L as any).Draw.Event.DRAWSTOP,  onDrawStop);
 
     map.addControl(drawControl);
 
-    map.on((L as any).Draw.Event.CREATED, async (e: any) => {
-      const layer = e.layer;
+    const onCreated = async (e: any) => {
+      const layer = e.layer as L.Layer;
       drawnItems.addLayer(layer);
+      const feature = (layer as any).toGeoJSON();
 
-      const geojson = layer.toGeoJSON();
       try {
-        const resp = await fetch("/.netlify/functions/create-area", {
+        const resp = await fetch(CREATE_API, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(geojson)
+          body: JSON.stringify({
+            name: feature.geometry?.type === "Point" ? "Νέο σημείο" : "Νέο πολύγωνο",
+            properties: { source: "manual" },
+            geometry: feature.geometry
+          })
         });
         if (!resp.ok) {
           console.error("create-area failed:", await resp.text());
         } else {
-          console.log("Area saved OK");
+          map.fire("reload-areas");
         }
       } catch (err) {
         console.error("Network error saving area:", err);
+      } finally {
+        drawnItems.removeLayer(layer);
       }
-    });
+    };
+
+    map.on((L as any).Draw.Event.CREATED, onCreated);
 
     return () => {
-      map.removeControl(drawControl);
+      map.off((L as any).Draw.Event.CREATED, onCreated);
       map.off((L as any).Draw.Event.DRAWSTART, onDrawStart);
       map.off((L as any).Draw.Event.DRAWSTOP, onDrawStop);
+      map.removeControl(drawControl);
+      map.removeLayer(drawnItems);
+      try { map.doubleClickZoom.enable(); } catch {}
     };
   }, [map]);
 
