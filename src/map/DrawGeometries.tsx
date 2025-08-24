@@ -1,22 +1,24 @@
 import { useEffect } from "react";
-import { useMap } from "react-leaflet";
 import L from "leaflet";
-import "leaflet-draw"; // το CSS το φορτώνουμε ήδη στο MapView.tsx
+import "leaflet-draw/dist/leaflet.draw.css";
+import "leaflet-draw";
 
-const CREATE_API = "/.netlify/functions/create-area";
+interface Props {
+  map: L.Map;
+}
 
-export default function DrawGeometries() {
-  const map = useMap();
-
+export default function DrawGeometries({ map }: Props) {
   useEffect(() => {
-    // Layer που κρατά προσωρινά τα προς αποστολή σχέδια
     const drawnItems = new L.FeatureGroup().addTo(map);
 
-    // Ρυθμίσεις εργαλείων σχεδίασης
     const drawControl = new (L.Control as any).Draw({
       draw: {
         marker: true,
-        polygon: { showArea: true, allowIntersection: false },
+        polygon: {
+          showArea: true,
+          allowIntersection: false,
+          finishOnDoubleClick: false   // 🔽 επιτρέπει περισσότερες από 3 κορυφές
+        },
         polyline: false,
         rectangle: false,
         circle: false,
@@ -29,7 +31,6 @@ export default function DrawGeometries() {
       }
     });
 
-    // Απενεργοποιούμε το double-click zoom όσο σχεδιάζουμε (για να μη «τελειώνει» πρόωρα το polygon)
     const onDrawStart = () => map.doubleClickZoom.disable();
     const onDrawStop = () => map.doubleClickZoom.enable();
     map.on((L as any).Draw.Event.DRAWSTART, onDrawStart);
@@ -37,57 +38,31 @@ export default function DrawGeometries() {
 
     map.addControl(drawControl);
 
-    // Όταν δημιουργείται νέο geometry → POST στη Netlify Function
-    const onCreated = async (e: any) => {
-      const layer = e.layer as L.Layer;
+    map.on((L as any).Draw.Event.CREATED, async (e: any) => {
+      const layer = e.layer;
       drawnItems.addLayer(layer);
 
-      const feature = (layer as any).toGeoJSON();
-      const geom = feature.geometry;
-      const friendlyName = geom?.type === "Point" ? "Νέο σημείο" : "Νέο πολύγωνο";
-
+      const geojson = layer.toGeoJSON();
       try {
-        const resp = await fetch(CREATE_API, {
+        const resp = await fetch("/.netlify/functions/create-area", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: friendlyName,
-            properties: { source: "manual" },
-            geometry: geom
-          })
+          body: JSON.stringify(geojson)
         });
-
         if (!resp.ok) {
-          const text = await resp.text();
-          alert("Αποτυχία αποθήκευσης: " + text);
-          drawnItems.removeLayer(layer);
-          return;
+          console.error("create-area failed:", await resp.text());
+        } else {
+          console.log("Area saved OK");
         }
-      } catch (err: any) {
-        alert("Σφάλμα δικτύου: " + (err?.message ?? "unknown"));
-        drawnItems.removeLayer(layer);
-        return;
+      } catch (err) {
+        console.error("Network error saving area:", err);
       }
+    });
 
-      // Καθάρισε το προσωρινό layer και κάνε reload από DB
-      drawnItems.removeLayer(layer);
-      map.fire("reload-areas");
-    };
-
-    map.on((L as any).Draw.Event.CREATED, onCreated);
-
-    // Cleanup για να μην συσσωρεύονται listeners σε hot reloads
     return () => {
-      map.off((L as any).Draw.Event.CREATED, onCreated);
+      map.removeControl(drawControl);
       map.off((L as any).Draw.Event.DRAWSTART, onDrawStart);
       map.off((L as any).Draw.Event.DRAWSTOP, onDrawStop);
-      map.removeControl(drawControl);
-      map.removeLayer(drawnItems);
-      try {
-        map.doubleClickZoom.enable();
-      } catch {
-        // ignore
-      }
     };
   }, [map]);
 
