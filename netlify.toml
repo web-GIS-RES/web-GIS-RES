@@ -4,7 +4,7 @@
   functions = "netlify/functions"
 
 [build.environment]
-  NODE_VERSION = "20.14.0"   # LTS σταθερή
+  NODE_VERSION = "20.19.0"   # ή νεότερο LTS που προτείνει το Vite
   NPM_FLAGS = "--legacy-peer-deps"
 
 [[redirects]]
