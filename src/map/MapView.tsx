@@ -4,7 +4,7 @@ import "leaflet/dist/leaflet.css";
 import InstallationsLayer from "./InstallationsLayer";
 import NewInstallation from "../ui/NewInstallation";
 
-// Helper: γράφει το Leaflet map global για προεπισκόπηση από άλλα components (π.χ. NewInstallation)
+// Γράφει το Leaflet map global (προαιρετικό για προεπισκοπήσεις)
 function SetGlobalMap() {
   const map = useMap();
   useEffect(() => {
@@ -36,11 +36,11 @@ export default function MapView() {
         <ScaleControl position="bottomleft" />
         <ZoomControl position="topright" />
 
-        {/* ΧΩΡΙΣ props */}
+        {/* Layer που φορτώνει/φιλτράρει τα installations από Supabase */}
         <InstallationsLayer />
       </MapContainer>
 
-      {/* Dialog χωρίς react-leaflet hooks */}
+      {/* Dialog εισαγωγής — onClose προαιρετικό */}
       <NewInstallation />
     </div>
   );
