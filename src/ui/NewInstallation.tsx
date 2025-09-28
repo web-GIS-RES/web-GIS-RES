@@ -4,31 +4,29 @@ import L from "leaflet";
 
 type Coord = { lon: string; lat: string };
 
-// Μετατρέπει αριθμούς που ίσως έχουν κενά/κόμματα/χιλιάδες σε κανονική μορφή
+/** Κανονικοποιεί αριθμητικά strings με τελείες/κόμματα/χιλιάδες σε μορφή με δεκαδική τελεία. */
 function normalizeNumber(input: string): string {
   let s = input.trim().replace(/\s+/g, "");
-  // Αν υπάρχει ΚΑΙ τελεία ΚΑΙ κόμμα, θεωρούμε ότι το ΤΕΛΕΥΤΑΙΟ σύμβολο είναι το δεκαδικό.
   const lastComma = s.lastIndexOf(",");
   const lastDot = s.lastIndexOf(".");
   if (lastComma > -1 && lastDot > -1) {
     if (lastComma > lastDot) {
-      // κόμμα δεκαδικό → αφαίρεσε τελείες (χιλιάδες), κάνε κόμμα→τελεία
-      s = s.replace(/\./g, "").replace(/,/, ".");
+      // Κόμμα ως δεκαδικό → βγάλε τελείες (χιλιάδες) και κάνε κόμματα → τελείες
+      s = s.replace(/\./g, "").replace(/,/g, ".");
     } else {
-      // τελεία δεκαδικό → αφαίρεσε κόμματα (χιλιάδες)
+      // Τελεία ως δεκαδικό → βγάλε κόμματα (χιλιάδες)
       s = s.replace(/,/g, "");
     }
   } else if (lastComma > -1) {
-    // μόνο κόμμα → θεώρησέ το δεκαδικό
-    s = s.replace(/,/, ".");
-  } // μόνο τελεία: ήδη ΟΚ
-
-  // Αφαίρεσε τυχόν υπόλοιπα "χιλιάδες" (π.χ. 1.234.567 → 1234567)
+    // Μόνο κόμμα → θεωρείται δεκαδικό
+    s = s.replace(/,/g, ".");
+  }
+  // Αφαίρεση υπολοίπων thousand separators τύπου 1.234.567
   s = s.replace(/(\d)\.(?=\d{3}(\D|$))/g, "$1");
   return s;
 }
 
-// Παίρνει κείμενο (lon,lat ανά γραμμή) και το κάνει σε λίστα από Coord
+/** Μετατρέπει κείμενο CSV (lon,lat ανά γραμμή) σε λίστα Coord. Αγνοεί header lon/lat. */
 function parseCsvToCoords(text: string): Coord[] {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
   const looksLikeHeader = (l: string) => /\blon|lng\b/i.test(l) && /\blat\b/i.test(l);
@@ -105,7 +103,7 @@ export default function NewInstallation() {
   };
 
   const onChangeVertices = (n: number) => {
-    const val = Math.max(3, n | 0);
+    const val = Math.max(3, (n | 0));
     setVertices(val);
     setCoords((prev) => {
       const next = prev.slice(0, val);
@@ -273,11 +271,7 @@ export default function NewInstallation() {
                 Parse CSV → Preview on map
               </button>
               <button type="button" onClick={clearPreview}>Clear preview</button>
-              <button
-                type="button"
-                onClick={() => drawPreview(coords)}
-                title="Preview from current inputs"
-              >
+              <button type="button" onClick={() => drawPreview(coords)} title="Preview from current inputs">
                 Preview from inputs
               </button>
             </div>
