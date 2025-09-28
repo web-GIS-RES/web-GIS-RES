@@ -18,7 +18,7 @@ export default function MapView() {
         maxZoom={18}
         zoomControl={false}
         style={{ width: "100%", height: "100%" }}
-        whenCreated={(m) => setMap(m)}   // << παίρνουμε το L.Map από εδώ
+        whenCreated={(m) => setMap(m)}
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -28,11 +28,11 @@ export default function MapView() {
         <ScaleControl position="bottomleft" />
         <ZoomControl position="topright" />
 
-        {/* ΔΕΝ χρησιμοποιεί hooks: παίρνει το map ως prop */}
         {map && <InstallationsLayer map={map} />}
       </MapContainer>
 
-      <NewInstallation />
+      {/* ΠΕΡΝΑΜΕ ΤΟ map εδώ */}
+      <NewInstallation map={map} />
     </div>
   );
 }

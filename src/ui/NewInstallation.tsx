@@ -1,11 +1,11 @@
-import { useState, useRef, useEffect } from "react";
-import { createPortal } from "react-dom";
-import { useMap } from "react-leaflet";
-import L from "leaflet";
+// src/ui/NewInstallation.tsx
+import { useEffect, useMemo, useRef, useState } from "react";
+import ReactDOM from "react-dom";
+import type L from "leaflet";
 
-type Coord = { lon: string; lat: string };
+type Props = { map: L.Map | null };
 
-const GREEK_REGIONS = [
+const REGIONS = [
   "Ανατολική Μακεδονία και Θράκη",
   "Κεντρική Μακεδονία",
   "Δυτική Μακεδονία",
@@ -20,383 +20,293 @@ const GREEK_REGIONS = [
   "Νότιο Αιγαίο",
   "Κρήτη",
 ] as const;
-type GreekRegion = typeof GREEK_REGIONS[number];
 
-/** Κανονικοποιεί αριθμητικά strings:
- *  - δεκαδικό κόμμα → τελεία
- *  - κρατά ΜΟΝΟ τον τελευταίο διαχωριστή ως δεκαδικό
- *  - αφαιρεί thousand separators χωρίς να “σβήνει” τον δεκαδικό
- */
-function normalizeNumber(input: string): string {
-  let s = input.trim().replace(/\s+/g, "");
+type Pair = { lon: string; lat: string };
 
-  const hasComma = s.includes(",");
-  const hasDot = s.includes(".");
+export default function NewInstallation({ map }: Props) {
+  const dlgRef = useRef<HTMLDialogElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
 
-  if (hasComma && hasDot) {
-    const lastComma = s.lastIndexOf(",");
-    const lastDot = s.lastIndexOf(".");
-    if (lastComma > lastDot) {
-      s = s.replace(/\./g, "");
-      const lastK = s.lastIndexOf(",");
-      s = s.slice(0, lastK).replace(/,/g, "") + "." + s.slice(lastK + 1).replace(/,/g, "");
-    } else {
-      s = s.replace(/,/g, "");
-      const lastD = s.lastIndexOf(".");
-      s = s.slice(0, lastD).replace(/\./g, "") + "." + s.slice(lastD + 1).replace(/\./g, "");
-    }
-  } else if (hasComma) {
-    const lastK = s.lastIndexOf(",");
-    s = s.slice(0, lastK).replace(/,/g, "") + "." + s.slice(lastK + 1).replace(/,/g, "");
-  } else if (hasDot) {
-    const lastD = s.lastIndexOf(".");
-    s = s.slice(0, lastD).replace(/\./g, "") + "." + s.slice(lastD + 1).replace(/\./g, "");
-  }
-  return s;
-}
-
-function parseCsvToCoords(text: string): Coord[] {
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
-  const looksLikeHeader = (l: string) => /\blon|lng\b/i.test(l) && /\blat\b/i.test(l);
-  const start = lines.length > 0 && looksLikeHeader(lines[0]) ? 1 : 0;
-
-  const coords: Coord[] = [];
-  for (let i = start; i < lines.length; i++) {
-    const parts = lines[i].split(/[;, \t]+/).map((p) => p.trim()).filter(Boolean);
-    if (parts.length < 2) continue;
-    coords.push({ lon: normalizeNumber(parts[0]), lat: normalizeNumber(parts[1]) });
-  }
-  return coords;
-}
-
-/** Draggable dialog ως προς ΟΘΟΝΗ:
- * - render σε portal (document.body) για να παρακαμφθούν transforms γονέων
- * - position: fixed
- * - clamping στα όρια του viewport
- */
-function useDraggableDialog(
-  dlgRef: React.RefObject<HTMLDialogElement | null>,
-  handleRef: React.RefObject<HTMLDivElement | null>
-) {
-  useEffect(() => {
-    const dlg = dlgRef.current;
-    const handle = handleRef.current;
-    if (!dlg || !handle) return;
-
-    dlg.style.position = "fixed";
-    dlg.style.zIndex = "9999";
-
-    let startX = 0, startY = 0, startLeft = 0, startTop = 0;
-    let dragging = false;
-
-    const onMouseDown = (e: MouseEvent) => {
-      dragging = true;
-      startX = e.clientX;
-      startY = e.clientY;
-
-      const rect = dlg.getBoundingClientRect();
-      if (!dlg.style.left) dlg.style.left = `${rect.left}px`;
-      if (!dlg.style.top) dlg.style.top = `${rect.top}px`;
-
-      startLeft = parseFloat(dlg.style.left || "0");
-      startTop = parseFloat(dlg.style.top || "0");
-
-      document.addEventListener("mousemove", onMouseMove);
-      document.addEventListener("mouseup", onMouseUp);
-    };
-
-    const onMouseMove = (e: MouseEvent) => {
-      if (!dragging) return;
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      const w = dlg.offsetWidth;
-      const h = dlg.offsetHeight;
-
-      let nextLeft = startLeft + dx;
-      let nextTop = startTop + dy;
-
-      // clamp στα όρια του viewport
-      nextLeft = Math.max(0, Math.min(vw - w, nextLeft));
-      nextTop = Math.max(0, Math.min(vh - h, nextTop));
-
-      dlg.style.left = `${nextLeft}px`;
-      dlg.style.top = `${nextTop}px`;
-    };
-
-    const onMouseUp = () => {
-      dragging = false;
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
-    };
-
-    handle.addEventListener("mousedown", onMouseDown);
-    return () => handle.removeEventListener("mousedown", onMouseDown);
-  }, [dlgRef, handleRef]);
-}
-
-export default function NewInstallation() {
-  const map = useMap();
-  const previewRef = useRef<L.Polygon | null>(null);
-
+  // form state
   const [code, setCode] = useState("");
   const [powerMax, setPowerMax] = useState<string>("");
   const [powerAvg, setPowerAvg] = useState<string>("");
-  const [region, setRegion] = useState<GreekRegion>("Δυτική Μακεδονία"); // default
-  const [vertices, setVertices] = useState<number>(5);
-  const [coords, setCoords] = useState<Coord[]>(Array.from({ length: 5 }, () => ({ lon: "", lat: "" })));
-  const [csvText, setCsvText] = useState<string>("");
+  const [vertices, setVertices] = useState<number>(3);
+  const [region, setRegion] = useState<typeof REGIONS[number]>("Δυτική Μακεδονία");
+  const [pairs, setPairs] = useState<Pair[]>([{ lon: "", lat: "" }, { lon: "", lat: "" }, { lon: "", lat: "" }]);
+  const [csv, setCsv] = useState("");
 
-  const dlgRef = useRef<HTMLDialogElement>(null);
-  const handleRef = useRef<HTMLDivElement>(null);
-  useDraggableDialog(dlgRef, handleRef);
+  // προσωρινό layer προεπισκόπησης
+  const previewLayer = useRef<L.Layer | null>(null);
 
-  const open = () => dlgRef.current?.showModal();
+  // --- ανοίγει/κλείνει dialog
+  useEffect(() => {
+    const d = dlgRef.current;
+    if (!d) return;
+    if (open && !d.open) d.showModal();
+    if (!open && d.open) d.close();
+  }, [open]);
 
-  const clearPreview = () => {
-    if (previewRef.current) {
-      map.removeLayer(previewRef.current);
-      previewRef.current = null;
-    }
-  };
+  // draggable header (ως προς την οθόνη)
+  useEffect(() => {
+    const header = headerRef.current;
+    const dlg = dlgRef.current;
+    if (!header || !dlg) return;
+    let sx = 0, sy = 0, ox = 0, oy = 0, dragging = false;
 
-  const close = () => {
-    clearPreview();
-    dlgRef.current?.close();
-  };
+    const onDown = (e: MouseEvent) => {
+      dragging = true;
+      sx = e.clientX; sy = e.clientY;
+      const rect = dlg.getBoundingClientRect();
+      ox = rect.left; oy = rect.top;
+      e.preventDefault();
+    };
+    const onMove = (e: MouseEvent) => {
+      if (!dragging) return;
+      const dx = e.clientX - sx, dy = e.clientY - sy;
+      dlg.style.left = `${ox + dx}px`;
+      dlg.style.top = `${oy + dy}px`;
+      dlg.style.margin = "0";
+      dlg.style.position = "fixed";
+    };
+    const onUp = () => (dragging = false);
 
-  const toLatLngs = (list: Coord[]) => list.map((c) => L.latLng(Number(c.lat), Number(c.lon)));
+    header.addEventListener("mousedown", onDown);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      header.removeEventListener("mousedown", onDown);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
 
-  const drawPreview = (list: Coord[]) => {
-    clearPreview();
-    if (list.length < 3) return;
-
-    for (const c of list) {
-      const lon = Number(c.lon), lat = Number(c.lat);
-      if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
-      if (lon < -180 || lon > 180 || lat < -90 || lat > 90) return;
-    }
-
-    previewRef.current = L.polygon(toLatLngs(list), {
-      color: "#ff9800", weight: 2, fillOpacity: 0.2, dashArray: "6 4", interactive: false
-    }).addTo(map);
-
-    try { map.fitBounds(previewRef.current.getBounds(), { padding: [20, 20] }); } catch { /* noop */ }
-  };
-
-  const onChangeVertices = (n: number) => {
-    const val = Math.max(3, (n | 0));
-    setVertices(val);
-    setCoords((prev) => {
-      const next = prev.slice(0, val);
-      while (next.length < val) next.push({ lon: "", lat: "" });
-      return next;
-    });
-    const filled = coords.slice(0, val).filter((c) => c.lon && c.lat);
-    if (filled.length >= 3) drawPreview(coords.slice(0, val));
-  };
-
-  const updateCoord = (index: number, key: "lon" | "lat", value: string) => {
-    setCoords((prev) => {
+  // συγχρονισμός πλήθους κορυφών με inputs
+  useEffect(() => {
+    setPairs((prev) => {
       const next = [...prev];
-      next[index] = { ...next[index], [key]: value };
+      if (vertices > prev.length) {
+        for (let i = prev.length; i < vertices; i++) next.push({ lon: "", lat: "" });
+      } else if (vertices < prev.length) {
+        next.length = Math.max(0, vertices);
+      }
       return next;
     });
-  };
+  }, [vertices]);
 
+  // Parse csv (δέχεται και ελληνικούς δεκαδικούς με κόμμα)
   const parseCsv = () => {
-    const parsed = parseCsvToCoords(csvText);
-    if (parsed.length < 3) {
-      alert("Δώσε τουλάχιστον 3 γραμμές με lon,lat");
-      return;
-    }
-    setCoords(parsed);
-    setVertices(parsed.length);
-    drawPreview(parsed);
-  };
-
-  const pasteFromClipboard = async () => {
-    try {
-      const txt = await navigator.clipboard.readText();
-      setCsvText(txt);
-      const parsed = parseCsvToCoords(txt);
-      if (parsed.length >= 3) {
-        setCoords(parsed);
-        setVertices(parsed.length);
-        drawPreview(parsed);
+    const lines = csv
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const parsed: Pair[] = [];
+    for (const line of lines) {
+      // 21,770 40,350  ή  21.770,40.350  ή  21.770 40.350
+      const parts = line.replace(/;/g, " ").replace(/,/g, ".").split(/\s+/);
+      if (parts.length < 2) continue;
+      const lon = parts[0], lat = parts[1];
+      if (isFinite(Number(lon)) && isFinite(Number(lat))) {
+        parsed.push({ lon, lat });
       }
-    } catch {
-      alert("Δεν επιτράπηκε πρόσβαση στο clipboard.");
+    }
+    if (parsed.length >= 3) {
+      setVertices(parsed.length);
+      setPairs(parsed);
+      previewFromInputs(parsed);
+    } else {
+      alert("Χρειάζονται τουλάχιστον 3 ζεύγη (lon lat) για πολύγωνο.");
     }
   };
 
-  const validate = () => {
-    if (!code.trim()) return "Code is required";
-    const pm = Number(powerMax), pa = Number(powerAvg);
-    if (!Number.isFinite(pm) || !Number.isFinite(pa)) return "Power values must be numbers";
-    if (coords.length < 3) return "Χρειάζονται τουλάχιστον 3 κορυφές";
-    for (let i = 0; i < coords.length; i++) {
-      const lon = Number(coords[i].lon), lat = Number(coords[i].lat);
-      if (!Number.isFinite(lon) || !Number.isFinite(lat)) return `Invalid lon/lat at row ${i + 1}`;
-      if (lon < -180 || lon > 180) return `Lon out of range at row ${i + 1}`;
-      if (lat < -90 || lat > 90) return `Lat out of range at row ${i + 1}`;
-    }
-    if (!GREEK_REGIONS.includes(region)) return "Invalid region";
-    return null;
+  // χτίσιμο WKT από ζεύγη
+  const toWKT = (pp: Pair[]) => {
+    const coords = pp.map((p) => `${Number(p.lon)} ${Number(p.lat)}`);
+    if (coords[0] !== coords[coords.length - 1]) coords.push(coords[0]); // κλείσιμο
+    return `POLYGON((${coords.join(", ")}))`;
   };
 
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const err = validate();
-    if (err) { alert(err); return; }
+  // Προεπισκόπηση πάνω στον χάρτη
+  const previewFromInputs = (pp: Pair[] = pairs) => {
+    if (!map) return;
+    try {
+      // καθάρισε παλιά
+      if (previewLayer.current) {
+        map.removeLayer(previewLayer.current as any);
+        previewLayer.current = null;
+      }
+      // έλεγξε τιμές
+      const pts = pp
+        .map((p) => [Number(p.lat), Number(p.lon)] as [number, number])
+        .filter(([la, lo]) => isFinite(la) && isFinite(lo));
+      if (pts.length < 3) return;
 
-    const payload = {
+      const poly = (window as any).L?.polygon(pts, {
+        weight: 2,
+        opacity: 1,
+        fillOpacity: 0.15,
+      });
+      if (poly) {
+        poly.addTo(map);
+        previewLayer.current = poly;
+        const b = poly.getBounds();
+        if (b.isValid()) map.fitBounds(b, { padding: [20, 20] });
+      }
+    } catch (e) {
+      console.error("Preview error:", e);
+    }
+  };
+
+  // καθάρισε preview όταν κλείνει
+  useEffect(() => {
+    if (open) return;
+    if (map && previewLayer.current) {
+      map.removeLayer(previewLayer.current as any);
+      previewLayer.current = null;
+    }
+  }, [open, map]);
+
+  // Submit → Netlify Function
+  const onSubmit = async () => {
+    if (!code.trim()) return alert("Δώσε κωδικό εγκατάστασης.");
+    const nums = pairs
+      .map((p) => ({ lon: Number(p.lon), lat: Number(p.lat) }))
+      .filter((p) => isFinite(p.lon) && isFinite(p.lat));
+    if (nums.length < 3) return alert("Χρειάζονται τουλάχιστον 3 έγκυρα σημεία.");
+
+    const wkt = toWKT(
+      nums.map((n) => ({ lon: String(n.lon), lat: String(n.lat) }))
+    );
+
+    const body = {
       code: code.trim(),
-      power_max: Number(powerMax),
-      power_avg: Number(powerAvg),
-      region,                                     // ΝΕΟ
-      coords: coords.map((c) => [Number(c.lon), Number(c.lat)]) as [number, number][],
+      power_max: Number(powerMax || 0),
+      power_avg: Number(powerAvg || 0),
+      region,
+      wkt,
     };
 
     try {
-      const resp = await fetch("/.netlify/functions/create-installation", {
+      const res = await fetch("/.netlify/functions/create-installation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
       });
-      const txt = await resp.text();
-      if (!resp.ok) { alert("Insert failed: " + txt); return; }
-      close();
-      window.dispatchEvent(new CustomEvent("reload-installations"));
-    } catch (error: any) {
-      alert("Network error: " + (error?.message ?? "unknown"));
+      if (!res.ok) throw new Error(await res.text());
+      // refresh χάρτη
+      window.dispatchEvent(new Event("reload-installations"));
+      setOpen(false);
+      // καθάρισε preview
+      if (map && previewLayer.current) {
+        map.removeLayer(previewLayer.current as any);
+        previewLayer.current = null;
+      }
+    } catch (e: any) {
+      alert("Αποτυχία καταχώρησης: " + (e?.message ?? e));
     }
   };
 
-  // -------- render σε PORTAL προς body, για “πραγματικό” fixed ως προς οθόνη --------
-  const dialog = (
-    <dialog ref={dlgRef} style={{ width: 720, padding: 0, border: "1px solid #999" }}>
-      {/* draggable header */}
-      <div
-        ref={handleRef}
-        style={{
-          background: "#1976d2", color: "white", padding: "8px 12px",
-          cursor: "move", userSelect: "none"
-        }}
-      >
-        New Installation
-      </div>
+  // Portal target
+  const portalTarget = useMemo(() => document.body, []);
 
-      <form onSubmit={onSubmit} style={{ padding: 16 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
-          <label>
-            Code<br />
-            <input value={code} onChange={(e) => setCode(e.target.value)} required />
-          </label>
-          <label>
-            Vertices (≥3)<br />
-            <input type="number" min={3} value={vertices} onChange={(e) => onChangeVertices(Number(e.target.value))} />
-          </label>
-          <label>
-            Power Max<br />
-            <input inputMode="decimal" value={powerMax} onChange={(e) => setPowerMax(e.target.value)} required />
-          </label>
-          <label>
-            Power Avg<br />
-            <input inputMode="decimal" value={powerAvg} onChange={(e) => setPowerAvg(e.target.value)} required />
-          </label>
-        </div>
-
-        {/* Περιοχή */}
-        <div style={{ marginTop: 8 }}>
-          <label>
-            Διοικητική Περιφέρεια<br />
-            <select value={region} onChange={(e) => setRegion(e.target.value as GreekRegion)} style={{ width: "100%" }}>
-              {GREEK_REGIONS.map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </label>
-        </div>
-
-        <hr />
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
-          <div>
-            <b>Paste lon,lat (ένα ζεύγος ανά γραμμή)</b>
-            <div style={{ fontSize: 12, opacity: 0.8 }}>
-              Παραδείγματα: <code>21.50,40.30</code> ή <code>21.50;40.30</code> ή <code>21.50 40.30</code> — δέχεται και δεκαδικό κόμμα.
-            </div>
-          </div>
-          <textarea
-            rows={6}
-            value={csvText}
-            onChange={(e) => setCsvText(e.target.value)}
-            style={{ width: "100%" }}
-            placeholder={`21,770 40,350
-21,780 40,352
-21,790 40,355`}
-          />
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button type="button" onClick={pasteFromClipboard}>Paste from Clipboard</button>
-            <button type="button" onClick={parseCsv} style={{ background: "#1976d2", color: "white" }}>
-              Parse CSV → Preview on map
-            </button>
-            <button type="button" onClick={clearPreview}>Clear preview</button>
-            <button type="button" onClick={() => drawPreview(coords)} title="Preview from current inputs">
-              Preview from inputs
-            </button>
-          </div>
-        </div>
-
-        <hr />
-
-        <div>
-          <b>Coordinates (lon, lat)</b>
-          <div style={{ maxHeight: 240, overflow: "auto", marginTop: 8 }}>
-            {coords.map((c, i) => (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-                <input
-                  placeholder={`lon ${i + 1}`}
-                  inputMode="decimal"
-                  value={c.lon}
-                  onChange={(e) => updateCoord(i, "lon", e.target.value)}
-                  required
-                />
-                <input
-                  placeholder={`lat ${i + 1}`}
-                  inputMode="decimal"
-                  value={c.lat}
-                  onChange={(e) => updateCoord(i, "lat", e.target.value)}
-                  required
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
-          <button type="button" onClick={close}>CANCEL</button>
-          <button type="submit" style={{ background: "#1976d2", color: "white" }}>ENTER</button>
-        </div>
-      </form>
-    </dialog>
-  );
-
-  return (
+  // UI
+  const form = (
     <>
       <button
-        onClick={open}
         style={{
-          position: "absolute", zIndex: 1000, top: 12, right: 12,
-          padding: "8px 12px", background: "#1976d2", color: "white",
-          border: "none", borderRadius: 6, cursor: "pointer",
+          position: "fixed",
+          right: 12,
+          top: 12,
+          zIndex: 1000,
+          padding: "8px 12px",
         }}
+        onClick={() => setOpen(true)}
       >
         NEW INSTALLATION
       </button>
 
-      {createPortal(dialog, document.body)}
+      <dialog ref={dlgRef} style={{ width: 560, maxWidth: "95vw" }}>
+        <div ref={headerRef} style={{ cursor: "move", margin: "-8px -8px 8px", padding: "8px", background: "#f0f0f0" }}>
+          <b>New Installation</b>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 8 }}>
+          <label>Code</label>
+          <input value={code} onChange={(e) => setCode(e.target.value)} />
+
+          <label>Vertices (≥3)</label>
+          <input
+            type="number"
+            min={3}
+            value={vertices}
+            onChange={(e) => setVertices(Math.max(3, Number(e.target.value || 3)))}
+          />
+
+          <label>Region</label>
+          <select value={region} onChange={(e) => setRegion(e.target.value as any)}>
+            {REGIONS.map((r) => (
+              <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
+
+          <label>Power Max (kWh)</label>
+          <input inputMode="decimal" value={powerMax} onChange={(e) => setPowerMax(e.target.value)} />
+
+          <label>Power Avg (kWh)</label>
+          <input inputMode="decimal" value={powerAvg} onChange={(e) => setPowerAvg(e.target.value)} />
+        </div>
+
+        <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
+          Επικόλλησε lon,lat ανά γραμμή (δέχεται τελείες/κόμματα).
+        </div>
+        <textarea
+          value={csv}
+          onChange={(e) => setCsv(e.target.value)}
+          rows={6}
+          style={{ width: "100%", marginTop: 6 }}
+        />
+        <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+          <button onClick={parseCsv}>Parse CSV → Preview on map</button>
+          <button onClick={() => previewFromInputs()}>Preview from inputs</button>
+          <button onClick={() => { setCsv(""); }}>Clear</button>
+        </div>
+
+        <div style={{ marginTop: 10, fontWeight: 600 }}>Coordinates (lon, lat)</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+          {pairs.map((p, i) => (
+            <div key={i} style={{ display: "contents" }}>
+              <input
+                placeholder="Longitude"
+                value={p.lon}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setPairs((prev) => {
+                    const next = [...prev]; next[i] = { ...next[i], lon: v }; return next;
+                  });
+                }}
+              />
+              <input
+                placeholder="Latitude"
+                value={p.lat}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setPairs((prev) => {
+                    const next = [...prev]; next[i] = { ...next[i], lat: v }; return next;
+                  });
+                }}
+              />
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+          <button onClick={() => setOpen(false)}>CANCEL</button>
+          <button onClick={onSubmit}>ENTER</button>
+        </div>
+      </dialog>
     </>
   );
+
+  return ReactDOM.createPortal(form, portalTarget);
 }
