@@ -1,7 +1,8 @@
+// src/map/InstallationsLayer.tsx
 import { useEffect, useRef, useState } from "react";
 import { useMap } from "react-leaflet";
 import L from "leaflet";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 const REGIONS = [
   "Όλες",
@@ -27,9 +28,22 @@ type Row = {
   feature: any; // GeoJSON Feature
 };
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-const supabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
+// --- Safe client bootstrap ---
+const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? "";
+const supabaseKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? "";
+const hasEnv = Boolean(supabaseUrl && supabaseKey);
+
+let supabase: SupabaseClient | null = null;
+if (hasEnv) {
+  try {
+    supabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
+  } catch (err) {
+    console.error("[InstallationsLayer] Failed to init Supabase client:", err);
+    supabase = null;
+  }
+} else {
+  console.error("[InstallationsLayer] Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY env vars");
+}
 
 export default function InstallationsLayer() {
   const map = useMap();
@@ -38,12 +52,19 @@ export default function InstallationsLayer() {
   const controlRef = useRef<L.Control | null>(null);
 
   const fmt = (v: unknown) =>
-    v === null || v === undefined || v === "" ? "—" : Number(v).toLocaleString("el-GR");
+    v === null || v === undefined || v === "" || Number.isNaN(Number(v))
+      ? "—"
+      : Number(v).toLocaleString("el-GR");
 
   const draw = (features: any[]) => {
     if (layerRef.current) {
       layerRef.current.removeFrom(map);
       layerRef.current = null;
+    }
+
+    if (!features || features.length === 0) {
+      // καθάρισε αλλά μην «πέσεις»
+      return;
     }
 
     const layer = L.geoJSON(features as any, {
@@ -56,70 +77,72 @@ export default function InstallationsLayer() {
         const pm = fmt(p?.power_max);
         const pa = fmt(p?.power_avg);
 
-        // Popup (click)
         l.bindPopup(
           `<b>${code}</b><br/>Περιφέρεια: ${r}<br/>Pmax: ${pm} kWh<br/>Pavg: ${pa} kWh`
         );
 
-        // Μόνιμη ετικέτα ΜΕΣΑ στο πολύγωνο (3 γραμμές)
-        // Χρησιμοποιούμε Leaflet Tooltip ως "label"
         const tooltipHtml = `<div class="poly-label">
   <div><b>${code}</b></div>
   <div>Max: ${pm} kWh</div>
   <div>Avg: ${pa} kWh</div>
 </div>`;
-
         l.bindTooltip(tooltipHtml, {
           permanent: true,
           direction: "center",
           className: "poly-tooltip",
           opacity: 0.95,
         });
-
-        // Βοηθάει ώστε οι ετικέτες να μην κρύβονται από άλλες στρώσεις
         (l as any).bringToFront?.();
       },
     }).addTo(map);
 
     layerRef.current = layer;
 
-    // Προαιρετικό autofit αν θες να χωράνε όλα:
     try {
       const b = layer.getBounds();
       if (b.isValid()) map.fitBounds(b, { padding: [20, 20] });
-    } catch {
-      // ignore
+    } catch (e) {
+      console.warn("[InstallationsLayer] fitBounds failed:", e);
     }
   };
 
   const fetchData = async (selected: RegionOption) => {
-    // Φέρνουμε από το view (βλ. v_installations_geojson με στήλη region + feature)
-    let q = supabase.from("v_installations_geojson").select("id,region,feature");
-    if (selected !== "Όλες") q = q.eq("region", selected);
-
-    const { data, error } = await q;
-    if (error) {
-      alert("Load failed: " + error.message);
+    if (!supabase) {
+      console.warn("[InstallationsLayer] Supabase client missing; skipping fetch");
+      draw([]); // καθάρισε τυχόν παλιό layer
       return;
     }
-    const features = (data ?? []).map((r: Row) => r.feature);
-    draw(features);
+    try {
+      let q = supabase.from("v_installations_geojson").select("id,region,feature");
+      if (selected !== "Όλες") q = q.eq("region", selected);
+      const { data, error } = await q;
+      if (error) {
+        console.error("[InstallationsLayer] Load failed:", error.message);
+        draw([]);
+        return;
+      }
+      const features = (data ?? []).map((r: Row) => r.feature);
+      draw(features);
+    } catch (err: any) {
+      console.error("[InstallationsLayer] Unexpected fetch error:", err?.message ?? err);
+      draw([]);
+    }
   };
 
-  // (3) Φόρτωση στην αρχή + σε αλλαγή περιφέρειας
+  // αρχικό load + αλλαγή περιφέρειας
   useEffect(() => {
     fetchData(region);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [region]);
 
-  // Ανανέωση μετά από insert (π.χ. από NewInstallation → dispatch 'reload-installations')
+  // refresh μετά από insert
   useEffect(() => {
     const h = () => fetchData(region);
     window.addEventListener("reload-installations", h as EventListener);
     return () => window.removeEventListener("reload-installations", h as EventListener);
   }, [region]);
 
-  // Leaflet control (πάνω-αριστερά) για επιλογή Περιφέρειας
+  // Leaflet control για Περιφέρεια
   useEffect(() => {
     const RegionControl = L.Control.extend({
       onAdd: () => {
@@ -137,6 +160,7 @@ export default function InstallationsLayer() {
 
         const select = L.DomUtil.create("select", "", container) as HTMLSelectElement;
         select.style.maxWidth = "240px";
+        if (!hasEnv) select.disabled = true; // αν λείπουν env, απενεργοποίησέ το
 
         REGIONS.forEach((r) => {
           const opt = document.createElement("option");
@@ -146,7 +170,6 @@ export default function InstallationsLayer() {
         });
         select.value = region;
 
-        // Μην κάνεις drag το map όταν ο χρήστης αλληλεπιδρά με το control
         L.DomEvent.disableClickPropagation(container);
         L.DomEvent.disableScrollPropagation(container);
 
