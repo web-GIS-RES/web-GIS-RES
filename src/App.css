@@ -40,3 +40,17 @@
 .read-the-docs {
   color: #888;
 }
+
+/* Για popups */
+.leaflet-popup-content-wrapper {
+  background: rgba(255, 255, 255, 0.6); /* λευκό με 60% διαφάνεια */
+  backdrop-filter: blur(4px);           /* (προαιρετικό) εφέ θολού φόντου */
+  border-radius: 8px;                   /* πιο μαλακές γωνίες */
+}
+
+/* Για tooltips */
+.leaflet-tooltip {
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid #999; /* μπορείς να το κάνεις πιο ελαφρύ */
+  color: #000;
+}
