@@ -4,40 +4,48 @@ import L from "leaflet";
 
 type Coord = { lon: string; lat: string };
 
-function normalizeNumber(s: string): string {
-  return s
-    .trim()
-    .replace(/\s/g, "")
-    .replace(/,/g, (m, idx, str) => {
-      const lastComma = str.lastIndexOf(",");
-      const lastDot = str.lastIndexOf(".");
-      if (lastComma > lastDot) return ".";
-      return "";
-    })
-    .replace(/(\d)\.(?=\d{3}(?:\.|$))/g, "$1");
+// Μετατρέπει αριθμούς που ίσως έχουν κενά/κόμματα/χιλιάδες σε κανονική μορφή
+function normalizeNumber(input: string): string {
+  let s = input.trim().replace(/\s+/g, "");
+  // Αν υπάρχει ΚΑΙ τελεία ΚΑΙ κόμμα, θεωρούμε ότι το ΤΕΛΕΥΤΑΙΟ σύμβολο είναι το δεκαδικό.
+  const lastComma = s.lastIndexOf(",");
+  const lastDot = s.lastIndexOf(".");
+  if (lastComma > -1 && lastDot > -1) {
+    if (lastComma > lastDot) {
+      // κόμμα δεκαδικό → αφαίρεσε τελείες (χιλιάδες), κάνε κόμμα→τελεία
+      s = s.replace(/\./g, "").replace(/,/, ".");
+    } else {
+      // τελεία δεκαδικό → αφαίρεσε κόμματα (χιλιάδες)
+      s = s.replace(/,/g, "");
+    }
+  } else if (lastComma > -1) {
+    // μόνο κόμμα → θεώρησέ το δεκαδικό
+    s = s.replace(/,/, ".");
+  } // μόνο τελεία: ήδη ΟΚ
+
+  // Αφαίρεσε τυχόν υπόλοιπα "χιλιάδες" (π.χ. 1.234.567 → 1234567)
+  s = s.replace(/(\d)\.(?=\d{3}(\D|$))/g, "$1");
+  return s;
 }
 
+// Παίρνει κείμενο (lon,lat ανά γραμμή) και το κάνει σε λίστα από Coord
 function parseCsvToCoords(text: string): Coord[] {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
   const looksLikeHeader = (l: string) => /\blon|lng\b/i.test(l) && /\blat\b/i.test(l);
-  const startIdx = lines.length && looksLikeHeader(lines[0]) ? 1 : 0;
+  const start = lines.length > 0 && looksLikeHeader(lines[0]) ? 1 : 0;
 
   const coords: Coord[] = [];
-  for (let i = startIdx; i < lines.length; i++) {
-    const row = lines[i].trim();
-    if (!row) continue;
-    const parts = row.split(/[;, \t]+/).map((x) => x.trim()).filter(Boolean);
+  for (let i = start; i < lines.length; i++) {
+    const parts = lines[i].split(/[;, \t]+/).map((p) => p.trim()).filter(Boolean);
     if (parts.length < 2) continue;
-    const lonStr = normalizeNumber(parts[0]);
-    const latStr = normalizeNumber(parts[1]);
-    coords.push({ lon: lonStr, lat: latStr });
+    coords.push({ lon: normalizeNumber(parts[0]), lat: normalizeNumber(parts[1]) });
   }
   return coords;
 }
 
 export default function NewInstallation() {
   const map = useMap();
-  const previewRef = useRef<L.Polygon | null>(null); // προσωρινό polygon πάνω στον χάρτη
+  const previewRef = useRef<L.Polygon | null>(null);
 
   const [code, setCode] = useState("");
   const [powerMax, setPowerMax] = useState<string>("");
@@ -66,18 +74,17 @@ export default function NewInstallation() {
     dlgRef.current?.close();
   };
 
-  const toLatLngs = (list: Coord[]) => {
-    // Leaflet: [lat, lon] !
-    return list.map((c) => L.latLng(Number(c.lat), Number(c.lon)));
-  };
+  const toLatLngs = (list: Coord[]) =>
+    list.map((c) => L.latLng(Number(c.lat), Number(c.lon)));
 
   const drawPreview = (list: Coord[]) => {
     clearPreview();
     if (list.length < 3) return;
 
-    // validation γρήγορο
+    // Γρήγορο validation πριν το draw
     for (const c of list) {
-      const lon = Number(c.lon), lat = Number(c.lat);
+      const lon = Number(c.lon);
+      const lat = Number(c.lat);
       if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
       if (lon < -180 || lon > 180 || lat < -90 || lat > 90) return;
     }
@@ -92,25 +99,27 @@ export default function NewInstallation() {
 
     try {
       map.fitBounds(previewRef.current.getBounds(), { padding: [20, 20] });
-    } catch {}
+    } catch {
+      // ignore
+    }
   };
 
   const onChangeVertices = (n: number) => {
-    if (n < 3) n = 3;
-    setVertices(n);
+    const val = Math.max(3, n | 0);
+    setVertices(val);
     setCoords((prev) => {
-      const next = prev.slice(0, n);
-      while (next.length < n) next.push({ lon: "", lat: "" });
+      const next = prev.slice(0, val);
+      while (next.length < val) next.push({ lon: "", lat: "" });
       return next;
     });
-    // προαιρετικά: redraw αν έχεις αρκετά σημεία συμπληρωμένα
-    if (coords.filter((c) => c.lon && c.lat).length >= 3) drawPreview(coords.slice(0, n));
+    const filled = coords.slice(0, val).filter((c) => c.lon && c.lat);
+    if (filled.length >= 3) drawPreview(coords.slice(0, val));
   };
 
-  const updateCoord = (idx: number, key: "lon" | "lat", val: string) => {
+  const updateCoord = (index: number, key: "lon" | "lat", value: string) => {
     setCoords((prev) => {
       const next = [...prev];
-      next[idx] = { ...next[idx], [key]: val };
+      next[index] = { ...next[index], [key]: value };
       return next;
     });
   };
@@ -123,7 +132,7 @@ export default function NewInstallation() {
     }
     setCoords(parsed);
     setVertices(parsed.length);
-    drawPreview(parsed); // 🔶 ΖΩΓΡΑΦΙΖΕΙ ΠΡΟΕΠΙΣΚΟΠΗΣΗ
+    drawPreview(parsed);
   };
 
   const pasteFromClipboard = async () => {
@@ -134,7 +143,7 @@ export default function NewInstallation() {
       if (parsed.length >= 3) {
         setCoords(parsed);
         setVertices(parsed.length);
-        drawPreview(parsed); // 🔶 ΖΩΓΡΑΦΙΖΕΙ ΠΡΟΕΠΙΣΚΟΠΗΣΗ
+        drawPreview(parsed);
       }
     } catch {
       alert("Δεν επιτράπηκε πρόσβαση στο clipboard.");
@@ -143,11 +152,13 @@ export default function NewInstallation() {
 
   const validate = () => {
     if (!code.trim()) return "Code is required";
-    const pm = Number(powerMax), pa = Number(powerAvg);
+    const pm = Number(powerMax);
+    const pa = Number(powerAvg);
     if (!Number.isFinite(pm) || !Number.isFinite(pa)) return "Power values must be numbers";
     if (coords.length < 3) return "Χρειάζονται τουλάχιστον 3 κορυφές";
     for (let i = 0; i < coords.length; i++) {
-      const lon = Number(coords[i].lon), lat = Number(coords[i].lat);
+      const lon = Number(coords[i].lon);
+      const lat = Number(coords[i].lat);
       if (!Number.isFinite(lon) || !Number.isFinite(lat)) return `Invalid lon/lat at row ${i + 1}`;
       if (lon < -180 || lon > 180) return `Lon out of range at row ${i + 1}`;
       if (lat < -90 || lat > 90) return `Lat out of range at row ${i + 1}`;
@@ -181,10 +192,10 @@ export default function NewInstallation() {
         alert("Insert failed: " + txt);
         return;
       }
-      close();             // κλείσε modal + καθάρισε preview
+      close(); // κλείσιμο modal + καθάρισμα preview
       window.dispatchEvent(new CustomEvent("reload-installations"));
-    } catch (err: any) {
-      alert("Network error: " + (err?.message ?? "unknown"));
+    } catch (error: any) {
+      alert("Network error: " + (error?.message ?? "unknown"));
     }
   };
 
@@ -256,12 +267,19 @@ export default function NewInstallation() {
               onChange={(e) => setCsvText(e.target.value)}
               style={{ width: "100%" }}
             />
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button type="button" onClick={pasteFromClipboard}>Paste from Clipboard</button>
               <button type="button" onClick={parseCsv} style={{ background: "#1976d2", color: "white" }}>
                 Parse CSV → Preview on map
               </button>
               <button type="button" onClick={clearPreview}>Clear preview</button>
+              <button
+                type="button"
+                onClick={() => drawPreview(coords)}
+                title="Preview from current inputs"
+              >
+                Preview from inputs
+              </button>
             </div>
           </div>
 
@@ -289,10 +307,6 @@ export default function NewInstallation() {
                   />
                 </div>
               ))}
-            </div>
-            {/* Προαιρετικό: κουμπί προεπισκόπησης και από τα manual inputs */}
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button type="button" onClick={() => drawPreview(coords)}>Preview from inputs</button>
             </div>
           </div>
 
