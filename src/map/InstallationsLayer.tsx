@@ -1,4 +1,3 @@
-// src/map/InstallationsLayer.tsx
 import { useEffect, useRef, useState } from "react";
 import { useMap } from "react-leaflet";
 import * as L from "leaflet";
@@ -23,11 +22,7 @@ const REGIONS = [
 ] as const;
 type RegionOption = typeof REGIONS[number];
 
-type Row = {
-  id: number;
-  region: string | null;
-  feature: any; // GeoJSON Feature
-};
+type Row = { id: number; region: string | null; feature: any };
 
 const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? "";
 const supabaseKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? "";
@@ -45,7 +40,7 @@ if (hasEnv) {
 }
 
 export default function InstallationsLayer() {
-  const map = useMap(); // <-- ασφαλές, είμαστε κάτω από MapContainer
+  const map = useMap();
   const [region, setRegion] = useState<RegionOption>("Όλες");
   const layerRef = useRef<L.GeoJSON | null>(null);
   const controlRef = useRef<L.Control | null>(null);
@@ -60,7 +55,7 @@ export default function InstallationsLayer() {
       layerRef.current.removeFrom(map);
       layerRef.current = null;
     }
-    if (!features || features.length === 0) return;
+    if (!features?.length) return;
 
     const layer = L.geoJSON(features as any, {
       style: () => ({ weight: 2, opacity: 1, fillOpacity: 0.15 }),
@@ -92,13 +87,10 @@ export default function InstallationsLayer() {
     }).addTo(map);
 
     layerRef.current = layer;
-
     try {
       const b = layer.getBounds();
       if (b.isValid()) map.fitBounds(b, { padding: [20, 20] });
-    } catch (e) {
-      console.warn("[InstallationsLayer] fitBounds failed:", e);
-    }
+    } catch {}
   };
 
   const fetchData = async (selected: RegionOption) => {
@@ -116,28 +108,24 @@ export default function InstallationsLayer() {
         draw([]);
         return;
       }
-      const features = (data ?? []).map((r: Row) => r.feature);
-      draw(features);
+      draw((data ?? []).map((r: Row) => r.feature));
     } catch (e) {
       console.error("[InstallationsLayer] Unexpected error:", e);
       draw([]);
     }
   };
 
-  // αρχικό load + αλλαγή περιφέρειας
   useEffect(() => {
     fetchData(region);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [region]);
 
-  // refresh μετά από insert
   useEffect(() => {
     const h = () => fetchData(region);
     window.addEventListener("reload-installations", h as EventListener);
     return () => window.removeEventListener("reload-installations", h as EventListener);
   }, [region]);
 
-  // Leaflet control για την Περιφέρεια
   useEffect(() => {
     const RegionControl = (L.Control as any).extend({
       onAdd: () => {
@@ -183,20 +171,15 @@ export default function InstallationsLayer() {
     controlRef.current = ctl;
 
     return () => {
-      if (controlRef.current) {
-        controlRef.current.remove();
-        controlRef.current = null;
-      }
+      controlRef.current?.remove();
+      controlRef.current = null;
     };
-  }, [map, region]);
+  }, [map]);
 
-  // καθαρισμός layer όταν unmount
   useEffect(() => {
     return () => {
-      if (layerRef.current) {
-        layerRef.current.removeFrom(map);
-        layerRef.current = null;
-      }
+      layerRef.current?.removeFrom(map);
+      layerRef.current = null;
     };
   }, [map]);
 

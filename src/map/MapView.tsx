@@ -1,4 +1,3 @@
-// src/map/MapView.tsx
 import { MapContainer, TileLayer, ZoomControl, ScaleControl } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import InstallationsLayer from "./InstallationsLayer";
@@ -16,7 +15,6 @@ export default function MapView() {
         maxZoom={18}
         zoomControl={false}
         style={{ width: "100%", height: "100%" }}
-        whenReady={(e) => { (window as any).__leafletMap = e.target; }} // προαιρετικό: global ref για preview
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -26,11 +24,11 @@ export default function MapView() {
         <ScaleControl position="bottomleft" />
         <ZoomControl position="topright" />
 
-        {/* ΠΡΕΠΕΙ να είναι παιδί του MapContainer */}
+        {/* ΜΕΣΑ στο MapContainer */}
         <InstallationsLayer />
       </MapContainer>
 
-      {/* Το dialog γίνεται portal στο body και δεν χρησιμοποιεί react-leaflet hooks */}
+      {/* Dialog (χωρίς react-leaflet hooks) */}
       <NewInstallation />
     </div>
   );
