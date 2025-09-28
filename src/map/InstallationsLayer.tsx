@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { GeoJSON } from "react-leaflet";
 
-// Τύπος για το feature που επιστρέφει το view
 interface InstallationFeature {
   type: "Feature";
   id: number;
@@ -16,10 +15,10 @@ interface InstallationFeature {
   };
 }
 
-export default function InstallationsLayer() {
+export default function InstallationsLayer({ refreshKey }: { refreshKey: number }) {
   const [features, setFeatures] = useState<InstallationFeature[]>([]);
 
-  async function load() {
+  const load = async () => {
     try {
       const base = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/v_installations_geojson`;
       const selected = (window as any).__selectedRegion as string | null | undefined;
@@ -35,7 +34,6 @@ export default function InstallationsLayer() {
           Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
         },
       });
-
       if (!resp.ok) {
         console.error("Failed to fetch installations", await resp.text());
         setFeatures([]);
@@ -47,28 +45,27 @@ export default function InstallationsLayer() {
       console.error("Error loading installations", err);
       setFeatures([]);
     }
-  }
+  };
 
   useEffect(() => {
     load();
-
-    const onReload = () => load();
     const onRegion = () => load();
-
-    window.addEventListener("reload-installations", onReload);
     window.addEventListener("region-changed", onRegion);
-    return () => {
-      window.removeEventListener("reload-installations", onReload);
-      window.removeEventListener("region-changed", onRegion);
-    };
+    return () => window.removeEventListener("region-changed", onRegion);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    // Κάθε φορά που αλλάζει το refreshKey → επαναφόρτωση
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
 
   if (!features.length) return null;
 
   return (
     <GeoJSON
-      key="installations"
+      key={`installations-${refreshKey}`} // αναγκαστική ανανέωση binding
       data={features as any}
       style={() => ({
         color: "#d62728",

@@ -45,7 +45,13 @@ const fixedButton: React.CSSProperties = {
   padding: "8px 12px",
 };
 
-export default function NewInstallation({ onClose }: { onClose?: () => void }) {
+export default function NewInstallation({
+  onCreated,
+  onClose,
+}: {
+  onCreated?: () => void;
+  onClose?: () => void;
+}) {
   const dlgRef = useRef<HTMLDialogElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -60,7 +66,7 @@ export default function NewInstallation({ onClose }: { onClose?: () => void }) {
 
   const previewLayer = useRef<L.Polygon | null>(null);
 
-  // open/close dialog programmatically
+  // Άνοιγμα/κλείσιμο dialog
   useEffect(() => {
     const d = dlgRef.current;
     if (!d) return;
@@ -68,7 +74,7 @@ export default function NewInstallation({ onClose }: { onClose?: () => void }) {
     if (!open && d.open) d.close();
   }, [open]);
 
-  // draggable header (ως προς οθόνη)
+  // Draggable header (ως προς οθόνη)
   useEffect(() => {
     const header = headerRef.current;
     const dlg = dlgRef.current;
@@ -103,7 +109,7 @@ export default function NewInstallation({ onClose }: { onClose?: () => void }) {
     };
   }, []);
 
-  // sync αριθμός κορυφών ↔ inputs
+  // Συγχρονισμός αριθμού κορυφών ↔ inputs
   useEffect(() => {
     setPairs((prev) => {
       const next = [...prev];
@@ -116,7 +122,7 @@ export default function NewInstallation({ onClose }: { onClose?: () => void }) {
     });
   }, [vertices]);
 
-  // helper: δημιουργία WKT από pairs
+  // WKT από pairs
   const toWKT = (pp: Pair[]) => {
     const nums = pp
       .map((p) => [Number(p.lon), Number(p.lat)] as [number, number])
@@ -127,10 +133,10 @@ export default function NewInstallation({ onClose }: { onClose?: () => void }) {
     return `POLYGON((${ring.join(", ")}))`;
   };
 
-  // προεπισκόπηση στο χάρτη (αν έχεις αποθηκεύσει global map)
+  // Προεπισκόπηση στο χάρτη
   const previewFrom = (pp: Pair[] = pairs) => {
     const map = (window as any).__leafletMap as L.Map | undefined;
-    if (!map) return; // προαιρετικό
+    if (!map) return;
     try {
       if (previewLayer.current) {
         map.removeLayer(previewLayer.current);
@@ -151,7 +157,7 @@ export default function NewInstallation({ onClose }: { onClose?: () => void }) {
     }
   };
 
-  // clear preview όταν κλείνει
+  // Καθάρισμα preview όταν κλείνει
   useEffect(() => {
     if (open) return;
     const map = (window as any).__leafletMap as L.Map | undefined;
@@ -161,7 +167,7 @@ export default function NewInstallation({ onClose }: { onClose?: () => void }) {
     }
   }, [open]);
 
-  // Parse CSV (lon,lat ανά γραμμή, δέχεται και κόμματα)
+  // Parse CSV (lon,lat ανά γραμμή, δέχεται κόμματα/τελείες)
   const parseCsv = () => {
     const lines = csv
       .split(/\r?\n/)
@@ -199,7 +205,6 @@ export default function NewInstallation({ onClose }: { onClose?: () => void }) {
       power_max: Number(powerMax || 0),
       power_avg: Number(powerAvg || 0),
       region,
-      // ✨ στέλνουμε ΚΑΙ coords ΚΑΙ wkt
       coords: nums.map(({ lon, lat }) => [lon, lat] as [number, number]),
       wkt,
     };
@@ -213,17 +218,25 @@ export default function NewInstallation({ onClose }: { onClose?: () => void }) {
       const text = await res.text();
       if (!res.ok) throw new Error(text);
 
-      // ενημέρωση layer
-      window.dispatchEvent(new Event("reload-installations"));
+      // ✅ ενημέρωσε τον χάρτη άμεσα
+      onCreated?.();
+
+      // κλείσιμο διαλόγου & καθάρισμα preview
       setOpen(false);
       onClose?.();
-
-      // καθάρισε preview
       const map = (window as any).__leafletMap as L.Map | undefined;
       if (map && previewLayer.current) {
         map.removeLayer(previewLayer.current);
         previewLayer.current = null;
       }
+
+      // καθάρισε και τα inputs
+      setCode("");
+      setPowerMax("");
+      setPowerAvg("");
+      setCsv("");
+      setVertices(3);
+      setPairs([{ lon: "", lat: "" }, { lon: "", lat: "" }, { lon: "", lat: "" }]);
     } catch (e: any) {
       alert("Αποτυχία καταχώρησης: " + (e?.message ?? e));
     }

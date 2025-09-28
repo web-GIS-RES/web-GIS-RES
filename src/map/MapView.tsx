@@ -1,11 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { MapContainer, TileLayer, ZoomControl, ScaleControl, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import InstallationsLayer from "./InstallationsLayer";
 import NewInstallation from "../ui/NewInstallation";
-import RegionFilter from "../ui/RegionFilter";
+import RegionFilter from "../ui/RegionFilter"; // αν δεν έχεις το αρχείο, αφαίρεσέ το import
 
-// Γράφει το Leaflet map global (προαιρετικό για προεπισκοπήσεις)
+// Προαιρετικό: εκθέτουμε το map global για preview polygons
 function SetGlobalMap() {
   const map = useMap();
   useEffect(() => {
@@ -15,12 +15,15 @@ function SetGlobalMap() {
 }
 
 export default function MapView() {
+  const [refreshKey, setRefreshKey] = useState(0);
+  const bump = () => setRefreshKey((k) => k + 1);
+
   const center: [number, number] = [39.2, 22.0];
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100vh" }}>
-      {/* Floating φίλτρο περιφέρειας */}
-      <RegionFilter />
+      {/* Προαιρετικό floating φίλτρο περιφέρειας */}
+      {typeof RegionFilter === "function" ? <RegionFilter /> : null}
 
       <MapContainer
         center={center}
@@ -40,10 +43,12 @@ export default function MapView() {
         <ScaleControl position="bottomleft" />
         <ZoomControl position="topright" />
 
-        <InstallationsLayer />
+        {/* Layer που φορτώνει τα installations και ξαναφορτώνει όταν αλλάζει το refreshKey */}
+        <InstallationsLayer refreshKey={refreshKey} />
       </MapContainer>
 
-      <NewInstallation />
+      {/* Dialog εισαγωγής — στο onCreated αυξάνουμε το refreshKey */}
+      <NewInstallation onCreated={bump} />
     </div>
   );
 }
