@@ -53,6 +53,24 @@ button:focus,
 button:focus-visible {
   outline: 4px auto -webkit-focus-ring-color;
 }
+/* Εμφάνιση μόνιμης ετικέτας μέσα στα πολύγωνα */
+.leaflet-tooltip.poly-tooltip {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #666;
+  padding: 4px 6px;
+  color: #111;
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: center;
+  box-shadow: 0 1px 2px rgba(0,0,0,.2);
+}
+.leaflet-tooltip.poly-tooltip:before {
+  display: none; /* κρύβει το "βέλος" του tooltip για καθαρό ορθογώνιο */
+}
+.poly-label b {
+  font-weight: 600;
+}
+
 
 @media (prefers-color-scheme: light) {
   :root {
@@ -66,3 +84,4 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
+
