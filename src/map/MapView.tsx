@@ -1,15 +1,16 @@
+import { useState } from "react";
 import { MapContainer, TileLayer, ZoomControl, ScaleControl } from "react-leaflet";
+import type L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import InstallationsLayer from "./InstallationsLayer";
 import NewInstallation from "../ui/NewInstallation";
 
 export default function MapView() {
-  // κεντράρουμε Ελλάδα
   const center: [number, number] = [39.2, 22.0];
+  const [map, setMap] = useState<L.Map | null>(null);
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100vh" }}>
-      {/* Ο ΧΑΡΤΗΣ — το layer πρέπει να είναι ΜΕΣΑ εδώ */}
       <MapContainer
         center={center}
         zoom={7}
@@ -17,6 +18,7 @@ export default function MapView() {
         maxZoom={18}
         zoomControl={false}
         style={{ width: "100%", height: "100%" }}
+        whenCreated={(m) => setMap(m)}   // << παίρνουμε το L.Map από εδώ
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -26,11 +28,10 @@ export default function MapView() {
         <ScaleControl position="bottomleft" />
         <ZoomControl position="topright" />
 
-        {/* ΠΡΕΠΕΙ να είναι παιδί του MapContainer */}
-        <InstallationsLayer />
+        {/* ΔΕΝ χρησιμοποιεί hooks: παίρνει το map ως prop */}
+        {map && <InstallationsLayer map={map} />}
       </MapContainer>
 
-      {/* Το dialog εμφανίζεται με portal στο body, οπότε μπορεί να είναι έξω */}
       <NewInstallation />
     </div>
   );

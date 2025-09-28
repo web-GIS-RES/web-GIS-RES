@@ -1,8 +1,9 @@
-// src/map/InstallationsLayer.tsx
 import { useEffect, useRef, useState } from "react";
-import { useMap } from "react-leaflet";
-import L from "leaflet";
+import type L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+
+type Props = { map: L.Map };
 
 const REGIONS = [
   "Όλες",
@@ -28,7 +29,6 @@ type Row = {
   feature: any; // GeoJSON Feature
 };
 
-// --- Safe client bootstrap ---
 const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? "";
 const supabaseKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? "";
 const hasEnv = Boolean(supabaseUrl && supabaseKey);
@@ -38,15 +38,13 @@ if (hasEnv) {
   try {
     supabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
   } catch (err) {
-    console.error("[InstallationsLayer] Failed to init Supabase client:", err);
-    supabase = null;
+    console.error("[InstallationsLayer] Supabase init failed:", err);
   }
 } else {
-  console.error("[InstallationsLayer] Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY env vars");
+  console.error("[InstallationsLayer] Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY");
 }
 
-export default function InstallationsLayer() {
-  const map = useMap();
+export default function InstallationsLayer({ map }: Props) {
   const [region, setRegion] = useState<RegionOption>("Όλες");
   const layerRef = useRef<L.GeoJSON | null>(null);
   const controlRef = useRef<L.Control | null>(null);
@@ -61,23 +59,19 @@ export default function InstallationsLayer() {
       layerRef.current.removeFrom(map);
       layerRef.current = null;
     }
+    if (!features || features.length === 0) return;
 
-    if (!features || features.length === 0) {
-      // καθάρισε αλλά μην «πέσεις»
-      return;
-    }
-
-    const layer = L.geoJSON(features as any, {
+    const layer = (L as any).geoJSON(features, {
       style: () => ({ weight: 2, opacity: 1, fillOpacity: 0.15 }),
-      pointToLayer: (_f, latlng) => L.marker(latlng),
-      onEachFeature: (f, l) => {
+      pointToLayer: (_f: any, latlng: L.LatLng) => (L as any).marker(latlng),
+      onEachFeature: (f: any, l: L.Layer) => {
         const p = (f.properties ?? {}) as any;
         const code = p?.code ?? `#${p?.id ?? "—"}`;
         const r = p?.region ?? "—";
         const pm = fmt(p?.power_max);
         const pa = fmt(p?.power_avg);
 
-        l.bindPopup(
+        (l as any).bindPopup(
           `<b>${code}</b><br/>Περιφέρεια: ${r}<br/>Pmax: ${pm} kWh<br/>Pavg: ${pa} kWh`
         );
 
@@ -86,7 +80,7 @@ export default function InstallationsLayer() {
   <div>Max: ${pm} kWh</div>
   <div>Avg: ${pa} kWh</div>
 </div>`;
-        l.bindTooltip(tooltipHtml, {
+        (l as any).bindTooltip(tooltipHtml, {
           permanent: true,
           direction: "center",
           className: "poly-tooltip",
@@ -94,22 +88,20 @@ export default function InstallationsLayer() {
         });
         (l as any).bringToFront?.();
       },
-    }).addTo(map);
+    }).addTo(map as any);
 
     layerRef.current = layer;
 
     try {
       const b = layer.getBounds();
       if (b.isValid()) map.fitBounds(b, { padding: [20, 20] });
-    } catch (e) {
-      console.warn("[InstallationsLayer] fitBounds failed:", e);
-    }
+    } catch {}
   };
 
   const fetchData = async (selected: RegionOption) => {
     if (!supabase) {
-      console.warn("[InstallationsLayer] Supabase client missing; skipping fetch");
-      draw([]); // καθάρισε τυχόν παλιό layer
+      console.warn("[InstallationsLayer] No Supabase client — skipping fetch");
+      draw([]);
       return;
     }
     try {
@@ -123,8 +115,8 @@ export default function InstallationsLayer() {
       }
       const features = (data ?? []).map((r: Row) => r.feature);
       draw(features);
-    } catch (err: any) {
-      console.error("[InstallationsLayer] Unexpected fetch error:", err?.message ?? err);
+    } catch (e) {
+      console.error("[InstallationsLayer] Unexpected error:", e);
       draw([]);
     }
   };
@@ -142,9 +134,9 @@ export default function InstallationsLayer() {
     return () => window.removeEventListener("reload-installations", h as EventListener);
   }, [region]);
 
-  // Leaflet control για Περιφέρεια
+  // Leaflet control για την Περιφέρεια
   useEffect(() => {
-    const RegionControl = L.Control.extend({
+    const RegionControl = (L.Control as any).extend({
       onAdd: () => {
         const container = L.DomUtil.create("div", "leaflet-bar");
         container.style.background = "white";
@@ -160,7 +152,7 @@ export default function InstallationsLayer() {
 
         const select = L.DomUtil.create("select", "", container) as HTMLSelectElement;
         select.style.maxWidth = "240px";
-        if (!hasEnv) select.disabled = true; // αν λείπουν env, απενεργοποίησέ το
+        if (!hasEnv) select.disabled = true;
 
         REGIONS.forEach((r) => {
           const opt = document.createElement("option");
@@ -194,6 +186,16 @@ export default function InstallationsLayer() {
       }
     };
   }, [map, region]);
+
+  // καθαρισμός layer όταν unmount
+  useEffect(() => {
+    return () => {
+      if (layerRef.current) {
+        layerRef.current.removeFrom(map);
+        layerRef.current = null;
+      }
+    };
+  }, [map]);
 
   return null;
 }
