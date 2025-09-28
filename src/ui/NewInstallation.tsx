@@ -20,30 +20,10 @@ const REGIONS = [
   "Κρήτη",
 ] as const;
 
-const labelStyle: React.CSSProperties = {
-  fontSize: 12,
-  opacity: 0.7,
-};
-
-const grid2Cols: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "140px 1fr",
-  gap: 8,
-};
-
-const btnBar: React.CSSProperties = {
-  display: "flex",
-  gap: 8,
-  marginTop: 6,
-};
-
-const fixedButton: React.CSSProperties = {
-  position: "fixed",
-  right: 12,
-  top: 12,
-  zIndex: 1000,
-  padding: "8px 12px",
-};
+const labelStyle: React.CSSProperties = { fontSize: 12, opacity: 0.7 };
+const grid2Cols: React.CSSProperties = { display: "grid", gridTemplateColumns: "140px 1fr", gap: 8 };
+const btnBar: React.CSSProperties = { display: "flex", gap: 8, marginTop: 6 };
+const fixedButton: React.CSSProperties = { position: "fixed", right: 12, top: 12, zIndex: 1000, padding: "8px 12px" };
 
 export default function NewInstallation({
   onCreated,
@@ -66,7 +46,6 @@ export default function NewInstallation({
 
   const previewLayer = useRef<L.Polygon | null>(null);
 
-  // Άνοιγμα/κλείσιμο dialog
   useEffect(() => {
     const d = dlgRef.current;
     if (!d) return;
@@ -74,7 +53,7 @@ export default function NewInstallation({
     if (!open && d.open) d.close();
   }, [open]);
 
-  // Draggable header (ως προς οθόνη)
+  // Draggable dialog (ως προς οθόνη)
   useEffect(() => {
     const header = headerRef.current;
     const dlg = dlgRef.current;
@@ -109,7 +88,6 @@ export default function NewInstallation({
     };
   }, []);
 
-  // Συγχρονισμός αριθμού κορυφών ↔ inputs
   useEffect(() => {
     setPairs((prev) => {
       const next = [...prev];
@@ -122,7 +100,6 @@ export default function NewInstallation({
     });
   }, [vertices]);
 
-  // WKT από pairs
   const toWKT = (pp: Pair[]) => {
     const nums = pp
       .map((p) => [Number(p.lon), Number(p.lat)] as [number, number])
@@ -133,7 +110,6 @@ export default function NewInstallation({
     return `POLYGON((${ring.join(", ")}))`;
   };
 
-  // Προεπισκόπηση στο χάρτη
   const previewFrom = (pp: Pair[] = pairs) => {
     const map = (window as any).__leafletMap as L.Map | undefined;
     if (!map) return;
@@ -157,7 +133,6 @@ export default function NewInstallation({
     }
   };
 
-  // Καθάρισμα preview όταν κλείνει
   useEffect(() => {
     if (open) return;
     const map = (window as any).__leafletMap as L.Map | undefined;
@@ -167,12 +142,8 @@ export default function NewInstallation({
     }
   }, [open]);
 
-  // Parse CSV (lon,lat ανά γραμμή, δέχεται κόμματα/τελείες)
   const parseCsv = () => {
-    const lines = csv
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter(Boolean);
+    const lines = csv.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     const parsed: Pair[] = [];
     for (const line of lines) {
       const parts = line.replace(/;/g, " ").replace(/,/g, ".").split(/\s+/);
@@ -193,7 +164,6 @@ export default function NewInstallation({
 
   const onSubmit = async () => {
     if (!code.trim()) return alert("Δώσε κωδικό εγκατάστασης.");
-
     const nums = pairs
       .map((p) => ({ lon: Number(p.lon), lat: Number(p.lat) }))
       .filter((p) => isFinite(p.lon) && isFinite(p.lat));
@@ -218,10 +188,29 @@ export default function NewInstallation({
       const text = await res.text();
       if (!res.ok) throw new Error(text);
 
-      // ✅ ενημέρωσε τον χάρτη άμεσα
+      // 1) ΑΙΣΙΟΔΟΞΗ ΑΠΕΙΚΟΝΙΣΗ: στείλε προσωρινό Feature στο layer
+      const tmpFeature = {
+        type: "Feature" as const,
+        id: `tmp-${Date.now()}`,
+        geometry: {
+          type: "Polygon",
+          coordinates: [[...nums.map((n) => [n.lon, n.lat]), [nums[0].lon, nums[0].lat]]],
+        },
+        properties: {
+          code: body.code,
+          region: body.region,
+          power_max: body.power_max,
+          power_avg: body.power_avg,
+          area_m2: null, // θα έρθει από τον server στο reload
+          __optimistic__: true,
+        },
+      };
+      window.dispatchEvent(new CustomEvent("optimistic-installation", { detail: tmpFeature }));
+
+      // 2) Ζήτα από το layer να ξαναφορτώσει από τον server
       onCreated?.();
 
-      // κλείσιμο διαλόγου & καθάρισμα preview
+      // 3) Κλείσιμο/καθάρισμα
       setOpen(false);
       onClose?.();
       const map = (window as any).__leafletMap as L.Map | undefined;
@@ -229,8 +218,6 @@ export default function NewInstallation({
         map.removeLayer(previewLayer.current);
         previewLayer.current = null;
       }
-
-      // καθάρισε και τα inputs
       setCode("");
       setPowerMax("");
       setPowerAvg("");
@@ -270,14 +257,12 @@ export default function NewInstallation({
             onChange={(e) => setVertices(Math.max(3, Number(e.target.value || 3)))}
           />
 
-          <label>Region</label>
-          <select value={region} onChange={(e) => setRegion(e.target.value as any)}>
-            {REGIONS.map((r) => (
-              <option key={r} value={r}>
-                {r}
-              </option>
-            ))}
-          </select>
+        <label>Region</label>
+        <select value={region} onChange={(e) => setRegion(e.target.value as any)}>
+          {REGIONS.map((r) => (
+            <option key={r} value={r}>{r}</option>
+          ))}
+        </select>
 
           <label>Power Max (kWh)</label>
           <input inputMode="decimal" value={powerMax} onChange={(e) => setPowerMax(e.target.value)} />

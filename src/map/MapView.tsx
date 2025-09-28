@@ -3,9 +3,8 @@ import { MapContainer, TileLayer, ZoomControl, ScaleControl, useMap } from "reac
 import "leaflet/dist/leaflet.css";
 import InstallationsLayer from "./InstallationsLayer";
 import NewInstallation from "../ui/NewInstallation";
-import RegionFilter from "../ui/RegionFilter"; // αν δεν έχεις το αρχείο, αφαίρεσέ το import
+import RegionFilter from "../ui/RegionFilter"; // αν δεν υπάρχει, αφαίρεσέ το import
 
-// Προαιρετικό: εκθέτουμε το map global για preview polygons
 function SetGlobalMap() {
   const map = useMap();
   useEffect(() => {
@@ -22,7 +21,6 @@ export default function MapView() {
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100vh" }}>
-      {/* Προαιρετικό floating φίλτρο περιφέρειας */}
       {typeof RegionFilter === "function" ? <RegionFilter /> : null}
 
       <MapContainer
@@ -43,11 +41,9 @@ export default function MapView() {
         <ScaleControl position="bottomleft" />
         <ZoomControl position="topright" />
 
-        {/* Layer που φορτώνει τα installations και ξαναφορτώνει όταν αλλάζει το refreshKey */}
         <InstallationsLayer refreshKey={refreshKey} />
       </MapContainer>
 
-      {/* Dialog εισαγωγής — στο onCreated αυξάνουμε το refreshKey */}
       <NewInstallation onCreated={bump} />
     </div>
   );
