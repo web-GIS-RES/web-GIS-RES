@@ -1,62 +1,132 @@
 // netlify/functions/create-installation.ts
-import type { Handler } from "@netlify/functions";
+import { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
-import wellknown from "wellknown"; // αν το χρησιμοποιείς, αλλιώς κάνε δικό σου WKT/GeoJSON
-// (δεν είναι υποχρεωτικό· φτιάχνουμε μόνοι μας το polygon από coords)
 
 type Body = {
   code: string;
-  power_max: number;
-  power_avg: number;
-  region: string; // Περιφέρεια (string που να ταιριάζει στο ENUM)
-  coords: [number, number][]; // [lon, lat] pairs
+  power_max?: number;
+  power_avg?: number;
+  region?: string | null;
+  coords?: [number, number][]; // [lon, lat]
+  wkt?: string;                 // POLYGON((lon lat, ...))
 };
 
-const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE!; // server key
+const supabaseUrl = process.env.SUPABASE_URL!;
+const serviceRole = process.env.SUPABASE_SERVICE_ROLE!; // server-only key
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
-  auth: { persistSession: false }
+const supabase = createClient(supabaseUrl, serviceRole, {
+  auth: { persistSession: false },
 });
 
-export const handler: Handler = async (event) => {
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: "Method Not Allowed" };
+const REGIONS = new Set([
+  "Ανατολική Μακεδονία και Θράκη",
+  "Κεντρική Μακεδονία",
+  "Δυτική Μακεδονία",
+  "Ήπειρος",
+  "Θεσσαλία",
+  "Ιόνιες Νήσοι",
+  "Δυτική Ελλάδα",
+  "Στερεά Ελλάδα",
+  "Αττική",
+  "Πελοπόννησος",
+  "Βόρειο Αιγαίο",
+  "Νότιο Αιγαίο",
+  "Κρήτη",
+]);
+
+function json(status: number, payload: any) {
+  return {
+    statusCode: status,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  };
+}
+
+function coordsToWkt(coords: [number, number][]) {
+  if (!Array.isArray(coords) || coords.length < 3) {
+    throw new Error("Need >= 3 coords");
   }
+  // lon,lat -> "lon lat"
+  const ring: string[] = coords.map(([lon, lat]) => `${lon} ${lat}`);
+  // κλείσε δακτύλιο αν δεν είναι κλειστός
+  if (ring[0] !== ring[ring.length - 1]) ring.push(ring[0]);
+  return `POLYGON((${ring.join(", ")}))`;
+}
 
+export const handler: Handler = async (event) => {
   try {
-    const body = JSON.parse(event.body || "{}") as Body;
-
-    if (!body.code?.trim()) return { statusCode: 400, body: "Missing code" };
-    if (!Array.isArray(body.coords) || body.coords.length < 3) {
-      return { statusCode: 400, body: "Need >= 3 coords" };
+    if (event.httpMethod !== "POST") {
+      return json(405, { error: "Method not allowed" });
     }
-    if (!body.region) return { statusCode: 400, body: "Missing region" };
+    if (!supabaseUrl || !serviceRole) {
+      return json(500, { error: "Missing Supabase env" });
+    }
 
-    // Κλείσε το δαχτυλίδι αν δεν είναι κλειστό
-    const first = body.coords[0];
-    const last = body.coords[body.coords.length - 1];
-    const closed = last[0] === first[0] && last[1] === first[1];
-    const ring = closed ? body.coords : [...body.coords, first];
+    let body: Body;
+    try {
+      body = JSON.parse(event.body || "{}");
+    } catch {
+      return json(400, { error: "Invalid JSON" });
+    }
 
-    // Φτιάξε WKT POLYGON (lon lat)
-    const wkt = `POLYGON((${ring.map(([x, y]) => `${x} ${y}`).join(", ")}))`;
+    const code = (body.code || "").toString().trim();
+    if (!code) return json(400, { error: "Missing code" });
 
-    // insert
-    const { error } = await supabase.rpc("insert_installation_wkt", {
-      p_code: body.code.trim(),
-      p_power_max: body.power_max,
-      p_power_avg: body.power_avg,
-      p_region: body.region,        // ΝΕΟ
-      p_wkt: wkt
+    const power_max = Number(body.power_max ?? 0);
+    const power_avg = Number(body.power_avg ?? 0);
+
+    // region είναι προαιρετικό – αν δοθεί, κάνε έναν απλό έλεγχο τιμών
+    const region =
+      typeof body.region === "string" && body.region.trim()
+        ? body.region.trim()
+        : null;
+    if (region && !REGIONS.has(region)) {
+      return json(400, { error: "Invalid region value" });
+    }
+
+    // Προετοιμασία WKT
+    let wkt = (body.wkt || "").toString().trim();
+    if (!/^POLYGON\s*\(/i.test(wkt)) {
+      // δεν έχει έγκυρο WKT -> προσπάθησε από coords
+      if (!body.coords) return json(400, { error: "Need >= 3 coords or a valid WKT POLYGON" });
+      try {
+        wkt = coordsToWkt(body.coords);
+      } catch (e: any) {
+        return json(400, { error: e?.message || "Invalid coords" });
+      }
+    }
+
+    // --- INSERT μέσω RPC ---
+    // 1η προσπάθεια: παράμετροι με πρόθεμα p_
+    let rpc = await supabase.rpc("api_insert_installation", {
+      p_code: code,
+      p_power_max: power_max,
+      p_power_avg: power_avg,
+      p_region: region,
+      p_wkt: wkt,
     });
 
-    if (error) {
-      return { statusCode: 400, body: `Insert failed: ${error.message}` };
+    // Fallback: χωρίς πρόθεμα p_ (αν η function έχει ορίσει άλλα ονόματα)
+    if (rpc.error) {
+      rpc = await supabase.rpc("api_insert_installation", {
+        code,
+        power_max,
+        power_avg,
+        region,
+        wkt,
+      });
     }
 
-    return { statusCode: 200, body: "ok" };
-  } catch (err: any) {
-    return { statusCode: 400, body: err?.message ?? "Bad request" };
+    if (rpc.error) {
+      // Επέστρεψε καθαρό μήνυμα στον client (θα το δεις στο Network/Response)
+      return json(400, { error: rpc.error.message });
+    }
+
+    // Κάποιες εκδόσεις μπορεί να επιστρέφουν id, άλλες void.
+    return json(200, { ok: true, id: rpc.data ?? null });
+  } catch (e: any) {
+    return json(500, { error: e?.message || "Server error" });
   }
 };
+
+export default handler;
