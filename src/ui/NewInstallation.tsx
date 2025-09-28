@@ -4,7 +4,11 @@ import L from "leaflet";
 
 type Coord = { lon: string; lat: string };
 
-/** Κανονικοποιεί 1) κόμμα→τελεία ως δεκαδικό 2) αφαιρεί ΜΟΝΟ περιττές τελείες πριν από το δεκαδικό. */
+/** Κανονικοποιεί αριθμητικά strings:
+ *  - μετατρέπει δεκαδικό κόμμα σε τελεία
+ *  - κρατά ΜΟΝΟ τον τελευταίο διαχωριστή ως δεκαδικό
+ *  - αφαιρεί περιττούς thousand separators, χωρίς να “σβήνει” τον δεκαδικό
+ */
 function normalizeNumber(input: string): string {
   let s = input.trim().replace(/\s+/g, "");
 
@@ -12,36 +16,33 @@ function normalizeNumber(input: string): string {
   const hasDot = s.includes(".");
 
   if (hasComma && hasDot) {
-    // Δεκαδικό = ο ΤΕΛΕΥΤΑΙΟΣ διαχωριστής που εμφανίζεται
     const lastComma = s.lastIndexOf(",");
     const lastDot = s.lastIndexOf(".");
     if (lastComma > lastDot) {
-      // Κόμμα δεκαδικό: βγάλε ΟΛΕΣ τις τελείες, κράτα ΜΟΝΟ το τελευταίο κόμμα ως δεκαδικό
+      // Κόμμα ως δεκαδικό: αφαίρεσε όλες τις τελείες, κράτα μόνο το τελευταίο κόμμα ως δεκαδικό
       s = s.replace(/\./g, "");
       const lastK = s.lastIndexOf(",");
       s = s.slice(0, lastK).replace(/,/g, "") + "." + s.slice(lastK + 1).replace(/,/g, "");
     } else {
-      // Τελεία δεκαδικό: βγάλε όλα τα κόμματα
+      // Τελεία ως δεκαδικό: αφαίρεσε όλα τα κόμματα
       s = s.replace(/,/g, "");
-      // αφήνουμε την τελευταία τελεία ως δεκαδικό και αφαιρούμε τυχόν προηγούμενες τελείες
+      // Κράτα μόνο την τελευταία τελεία ως δεκαδικό, βγάλε προηγούμενες (χιλιάδες)
       const lastD = s.lastIndexOf(".");
       s = s.slice(0, lastD).replace(/\./g, "") + "." + s.slice(lastD + 1).replace(/\./g, "");
     }
   } else if (hasComma) {
-    // Μόνο κόμμα → δεκαδικό: αντικατέστησέ το με τελεία (αν έχει πολλά, κράτα το τελευταίο)
+    // Μόνο κόμματα: κράτα το τελευταίο ως δεκαδικό
     const lastK = s.lastIndexOf(",");
     const left = s.slice(0, lastK).replace(/,/g, "");
     const right = s.slice(lastK + 1).replace(/,/g, "");
     s = left + "." + right;
   } else if (hasDot) {
-    // Μόνο τελεία: κράτα ΜΟΝΟ την τελευταία ως δεκαδικό
+    // Μόνο τελείες: κράτα την τελευταία ως δεκαδικό
     const lastD = s.lastIndexOf(".");
     const left = s.slice(0, lastD).replace(/\./g, "");
     const right = s.slice(lastD + 1).replace(/\./g, "");
     s = left + "." + right;
-  } else {
-    // Μόνο ψηφία: άφησέ το ως έχει
-  }
+  } // αλλιώς: μόνο ψηφία → άφησέ το
 
   return s;
 }
@@ -61,15 +62,17 @@ function parseCsvToCoords(text: string): Coord[] {
   return coords;
 }
 
-/** Απλό hook για draggable dialog με "λαβή" (header). */
-function useDraggableDialog(dlgRef: React.RefObject<HTMLDialogElement>, handleRef: React.RefObject<HTMLDivElement>) {
+/** Draggable dialog: κάνει το <dialog> να σύρεται με λαβή (header). */
+function useDraggableDialog(
+  dlgRef: React.RefObject<HTMLDialogElement | null>,
+  handleRef: React.RefObject<HTMLDivElement | null>
+) {
   useEffect(() => {
     const dlg = dlgRef.current;
     const handle = handleRef.current;
     if (!dlg || !handle) return;
 
-    // Βάλε fixed για να δουλεύουν top/left
-    dlg.style.position = "fixed";
+    dlg.style.position = "fixed"; // για να δουλεύουν left/top
 
     let startX = 0, startY = 0, startLeft = 0, startTop = 0;
     let dragging = false;
@@ -80,12 +83,12 @@ function useDraggableDialog(dlgRef: React.RefObject<HTMLDialogElement>, handleRe
       startY = e.clientY;
 
       const rect = dlg.getBoundingClientRect();
-      // Αν ανοίγει κεντραρισμένο χωρίς explicit left/top, δώσ' τα τώρα
       if (!dlg.style.left) dlg.style.left = `${rect.left}px`;
       if (!dlg.style.top) dlg.style.top = `${rect.top}px`;
 
       startLeft = parseFloat(dlg.style.left || "0");
       startTop = parseFloat(dlg.style.top || "0");
+
       document.addEventListener("mousemove", onMouseMove);
       document.addEventListener("mouseup", onMouseUp);
     };
@@ -144,12 +147,15 @@ export default function NewInstallation() {
   const drawPreview = (list: Coord[]) => {
     clearPreview();
     if (list.length < 3) return;
+
+    // γρήγορο validation πριν το draw
     for (const c of list) {
       const lon = Number(c.lon);
       const lat = Number(c.lat);
       if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
       if (lon < -180 || lon > 180 || lat < -90 || lat > 90) return;
     }
+
     previewRef.current = L.polygon(toLatLngs(list), {
       color: "#ff9800",
       weight: 2,
@@ -160,7 +166,9 @@ export default function NewInstallation() {
 
     try {
       map.fitBounds(previewRef.current.getBounds(), { padding: [20, 20] });
-    } catch { /* noop */ }
+    } catch {
+      // ignore
+    }
   };
 
   const onChangeVertices = (n: number) => {
@@ -251,7 +259,7 @@ export default function NewInstallation() {
         alert("Insert failed: " + txt);
         return;
       }
-      close();
+      close(); // κλείσε modal + καθάρισε preview
       window.dispatchEvent(new CustomEvent("reload-installations"));
     } catch (error: any) {
       alert("Network error: " + (error?.message ?? "unknown"));
@@ -279,7 +287,7 @@ export default function NewInstallation() {
       </button>
 
       <dialog ref={dlgRef} style={{ width: 700, padding: 0, border: "1px solid #999" }}>
-        {/* draggable header */}
+        {/* Draggable header */}
         <div
           ref={handleRef}
           style={{
@@ -301,7 +309,12 @@ export default function NewInstallation() {
             </label>
             <label>
               Vertices (≥3)<br />
-              <input type="number" min={3} value={vertices} onChange={(e) => onChangeVertices(Number(e.target.value))} />
+              <input
+                type="number"
+                min={3}
+                value={vertices}
+                onChange={(e) => onChangeVertices(Number(e.target.value))}
+              />
             </label>
             <label>
               Power Max<br />
