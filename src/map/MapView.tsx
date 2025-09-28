@@ -1,16 +1,15 @@
-// src/map/MapView.tsx
 import { MapContainer, TileLayer, ZoomControl, ScaleControl } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import InstallationsLayer from "./InstallationsLayer";
 import NewInstallation from "../ui/NewInstallation";
 
 export default function MapView() {
-  // Κεντράρουμε περίπου στην Ελλάδα
+  // κεντράρουμε Ελλάδα
   const center: [number, number] = [39.2, 22.0];
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100vh" }}>
-      {/* Χάρτης */}
+      {/* Ο ΧΑΡΤΗΣ — το layer πρέπει να είναι ΜΕΣΑ εδώ */}
       <MapContainer
         center={center}
         zoom={7}
@@ -27,11 +26,11 @@ export default function MapView() {
         <ScaleControl position="bottomleft" />
         <ZoomControl position="topright" />
 
-        {/* Layer με φίλτρο Περιφέρειας (control πάνω-αριστερά) */}
+        {/* ΠΡΕΠΕΙ να είναι παιδί του MapContainer */}
         <InstallationsLayer />
       </MapContainer>
 
-      {/* Κουμπί + dialog εισαγωγής νέας εγκατάστασης (portal για το dialog) */}
+      {/* Το dialog εμφανίζεται με portal στο body, οπότε μπορεί να είναι έξω */}
       <NewInstallation />
     </div>
   );
