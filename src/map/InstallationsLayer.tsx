@@ -1,9 +1,9 @@
+// src/map/InstallationsLayer.tsx
 import { useEffect, useRef, useState } from "react";
-import type L from "leaflet";
+import { useMap } from "react-leaflet";
+import * as L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-
-type Props = { map: L.Map };
 
 const REGIONS = [
   "Όλες",
@@ -44,7 +44,8 @@ if (hasEnv) {
   console.error("[InstallationsLayer] Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY");
 }
 
-export default function InstallationsLayer({ map }: Props) {
+export default function InstallationsLayer() {
+  const map = useMap(); // <-- ασφαλές, είμαστε κάτω από MapContainer
   const [region, setRegion] = useState<RegionOption>("Όλες");
   const layerRef = useRef<L.GeoJSON | null>(null);
   const controlRef = useRef<L.Control | null>(null);
@@ -61,10 +62,10 @@ export default function InstallationsLayer({ map }: Props) {
     }
     if (!features || features.length === 0) return;
 
-    const layer = (L as any).geoJSON(features, {
+    const layer = L.geoJSON(features as any, {
       style: () => ({ weight: 2, opacity: 1, fillOpacity: 0.15 }),
-      pointToLayer: (_f: any, latlng: L.LatLng) => (L as any).marker(latlng),
-      onEachFeature: (f: any, l: L.Layer) => {
+      pointToLayer: (_f, latlng) => L.marker(latlng),
+      onEachFeature: (f, l) => {
         const p = (f.properties ?? {}) as any;
         const code = p?.code ?? `#${p?.id ?? "—"}`;
         const r = p?.region ?? "—";
@@ -88,14 +89,16 @@ export default function InstallationsLayer({ map }: Props) {
         });
         (l as any).bringToFront?.();
       },
-    }).addTo(map as any);
+    }).addTo(map);
 
     layerRef.current = layer;
 
     try {
       const b = layer.getBounds();
       if (b.isValid()) map.fitBounds(b, { padding: [20, 20] });
-    } catch {}
+    } catch (e) {
+      console.warn("[InstallationsLayer] fitBounds failed:", e);
+    }
   };
 
   const fetchData = async (selected: RegionOption) => {

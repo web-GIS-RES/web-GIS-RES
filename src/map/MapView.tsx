@@ -1,13 +1,11 @@
-import { useState } from "react";
+// src/map/MapView.tsx
 import { MapContainer, TileLayer, ZoomControl, ScaleControl } from "react-leaflet";
-import type L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import InstallationsLayer from "./InstallationsLayer";
 import NewInstallation from "../ui/NewInstallation";
 
 export default function MapView() {
   const center: [number, number] = [39.2, 22.0];
-  const [map, setMap] = useState<L.Map | null>(null);
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100vh" }}>
@@ -18,7 +16,7 @@ export default function MapView() {
         maxZoom={18}
         zoomControl={false}
         style={{ width: "100%", height: "100%" }}
-        whenCreated={(m) => setMap(m)}
+        whenReady={(e) => { (window as any).__leafletMap = e.target; }} // προαιρετικό: global ref για preview
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -28,11 +26,12 @@ export default function MapView() {
         <ScaleControl position="bottomleft" />
         <ZoomControl position="topright" />
 
-        {map && <InstallationsLayer map={map} />}
+        {/* ΠΡΕΠΕΙ να είναι παιδί του MapContainer */}
+        <InstallationsLayer />
       </MapContainer>
 
-      {/* ΠΕΡΝΑΜΕ ΤΟ map εδώ */}
-      <NewInstallation map={map} />
+      {/* Το dialog γίνεται portal στο body και δεν χρησιμοποιεί react-leaflet hooks */}
+      <NewInstallation />
     </div>
   );
 }
