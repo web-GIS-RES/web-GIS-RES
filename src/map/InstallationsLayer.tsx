@@ -19,35 +19,49 @@ interface InstallationFeature {
 export default function InstallationsLayer() {
   const [features, setFeatures] = useState<InstallationFeature[]>([]);
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const resp = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/v_installations_geojson`,
-          {
-            headers: {
-              apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-              Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-            },
-          }
-        );
-        if (!resp.ok) {
-          console.error("Failed to fetch installations", await resp.text());
-          return;
-        }
-        const data = await resp.json(); // [{ id, feature }]
-        setFeatures(data.map((row: any) => row.feature));
-      } catch (err) {
-        console.error("Error loading installations", err);
-      }
-    }
+  async function load() {
+    try {
+      const base = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/v_installations_geojson`;
+      const selected = (window as any).__selectedRegion as string | null | undefined;
 
+      const url =
+        selected && selected.trim()
+          ? `${base}?select=feature&region=eq.${encodeURIComponent(selected)}`
+          : `${base}?select=feature`;
+
+      const resp = await fetch(url, {
+        headers: {
+          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        },
+      });
+
+      if (!resp.ok) {
+        console.error("Failed to fetch installations", await resp.text());
+        setFeatures([]);
+        return;
+      }
+      const data = await resp.json(); // [{ id, feature }]
+      setFeatures(data.map((row: any) => row.feature));
+    } catch (err) {
+      console.error("Error loading installations", err);
+      setFeatures([]);
+    }
+  }
+
+  useEffect(() => {
     load();
 
-    // προαιρετικό auto-reload όταν ολοκληρώνεται insert
-    const reload = () => load();
-    window.addEventListener("reload-installations", reload);
-    return () => window.removeEventListener("reload-installations", reload);
+    const onReload = () => load();
+    const onRegion = () => load();
+
+    window.addEventListener("reload-installations", onReload);
+    window.addEventListener("region-changed", onRegion);
+    return () => {
+      window.removeEventListener("reload-installations", onReload);
+      window.removeEventListener("region-changed", onRegion);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!features.length) return null;
@@ -74,7 +88,6 @@ export default function InstallationsLayer() {
             ? `${Math.round(Number(p.area_m2)).toLocaleString("el-GR")} m²`
             : "—";
 
-        // Popup (click)
         l.bindPopup(
           `<b>${code}</b><br/>
            Max: ${pm} kWh<br/>
@@ -82,7 +95,6 @@ export default function InstallationsLayer() {
            Area: ${am2}`
         );
 
-        // Tooltip (πάνω στο πολύγωνο)
         const tooltipHtml = `<div style="text-align:center;line-height:1.2">
           <div><b>${code}</b></div>
           <div>Max: ${pm} kWh</div>

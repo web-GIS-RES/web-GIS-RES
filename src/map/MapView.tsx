@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, ZoomControl, ScaleControl, useMap } from "reac
 import "leaflet/dist/leaflet.css";
 import InstallationsLayer from "./InstallationsLayer";
 import NewInstallation from "../ui/NewInstallation";
+import RegionFilter from "../ui/RegionFilter";
 
 // Γράφει το Leaflet map global (προαιρετικό για προεπισκοπήσεις)
 function SetGlobalMap() {
@@ -18,6 +19,9 @@ export default function MapView() {
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100vh" }}>
+      {/* Floating φίλτρο περιφέρειας */}
+      <RegionFilter />
+
       <MapContainer
         center={center}
         zoom={7}
@@ -36,11 +40,9 @@ export default function MapView() {
         <ScaleControl position="bottomleft" />
         <ZoomControl position="topright" />
 
-        {/* Layer που φορτώνει/φιλτράρει τα installations από Supabase */}
         <InstallationsLayer />
       </MapContainer>
 
-      {/* Dialog εισαγωγής — onClose προαιρετικό */}
       <NewInstallation />
     </div>
   );
