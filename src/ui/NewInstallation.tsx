@@ -1,28 +1,48 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useMap } from "react-leaflet";
 import L from "leaflet";
 
 type Coord = { lon: string; lat: string };
 
-/** Κανονικοποιεί αριθμητικά strings με τελείες/κόμματα/χιλιάδες σε μορφή με δεκαδική τελεία. */
+/** Κανονικοποιεί 1) κόμμα→τελεία ως δεκαδικό 2) αφαιρεί ΜΟΝΟ περιττές τελείες πριν από το δεκαδικό. */
 function normalizeNumber(input: string): string {
   let s = input.trim().replace(/\s+/g, "");
-  const lastComma = s.lastIndexOf(",");
-  const lastDot = s.lastIndexOf(".");
-  if (lastComma > -1 && lastDot > -1) {
+
+  const hasComma = s.includes(",");
+  const hasDot = s.includes(".");
+
+  if (hasComma && hasDot) {
+    // Δεκαδικό = ο ΤΕΛΕΥΤΑΙΟΣ διαχωριστής που εμφανίζεται
+    const lastComma = s.lastIndexOf(",");
+    const lastDot = s.lastIndexOf(".");
     if (lastComma > lastDot) {
-      // Κόμμα ως δεκαδικό → βγάλε τελείες (χιλιάδες) και κάνε κόμματα → τελείες
-      s = s.replace(/\./g, "").replace(/,/g, ".");
+      // Κόμμα δεκαδικό: βγάλε ΟΛΕΣ τις τελείες, κράτα ΜΟΝΟ το τελευταίο κόμμα ως δεκαδικό
+      s = s.replace(/\./g, "");
+      const lastK = s.lastIndexOf(",");
+      s = s.slice(0, lastK).replace(/,/g, "") + "." + s.slice(lastK + 1).replace(/,/g, "");
     } else {
-      // Τελεία ως δεκαδικό → βγάλε κόμματα (χιλιάδες)
+      // Τελεία δεκαδικό: βγάλε όλα τα κόμματα
       s = s.replace(/,/g, "");
+      // αφήνουμε την τελευταία τελεία ως δεκαδικό και αφαιρούμε τυχόν προηγούμενες τελείες
+      const lastD = s.lastIndexOf(".");
+      s = s.slice(0, lastD).replace(/\./g, "") + "." + s.slice(lastD + 1).replace(/\./g, "");
     }
-  } else if (lastComma > -1) {
-    // Μόνο κόμμα → θεωρείται δεκαδικό
-    s = s.replace(/,/g, ".");
+  } else if (hasComma) {
+    // Μόνο κόμμα → δεκαδικό: αντικατέστησέ το με τελεία (αν έχει πολλά, κράτα το τελευταίο)
+    const lastK = s.lastIndexOf(",");
+    const left = s.slice(0, lastK).replace(/,/g, "");
+    const right = s.slice(lastK + 1).replace(/,/g, "");
+    s = left + "." + right;
+  } else if (hasDot) {
+    // Μόνο τελεία: κράτα ΜΟΝΟ την τελευταία ως δεκαδικό
+    const lastD = s.lastIndexOf(".");
+    const left = s.slice(0, lastD).replace(/\./g, "");
+    const right = s.slice(lastD + 1).replace(/\./g, "");
+    s = left + "." + right;
+  } else {
+    // Μόνο ψηφία: άφησέ το ως έχει
   }
-  // Αφαίρεση υπολοίπων thousand separators τύπου 1.234.567
-  s = s.replace(/(\d)\.(?=\d{3}(\D|$))/g, "$1");
+
   return s;
 }
 
@@ -41,6 +61,54 @@ function parseCsvToCoords(text: string): Coord[] {
   return coords;
 }
 
+/** Απλό hook για draggable dialog με "λαβή" (header). */
+function useDraggableDialog(dlgRef: React.RefObject<HTMLDialogElement>, handleRef: React.RefObject<HTMLDivElement>) {
+  useEffect(() => {
+    const dlg = dlgRef.current;
+    const handle = handleRef.current;
+    if (!dlg || !handle) return;
+
+    // Βάλε fixed για να δουλεύουν top/left
+    dlg.style.position = "fixed";
+
+    let startX = 0, startY = 0, startLeft = 0, startTop = 0;
+    let dragging = false;
+
+    const onMouseDown = (e: MouseEvent) => {
+      dragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+
+      const rect = dlg.getBoundingClientRect();
+      // Αν ανοίγει κεντραρισμένο χωρίς explicit left/top, δώσ' τα τώρα
+      if (!dlg.style.left) dlg.style.left = `${rect.left}px`;
+      if (!dlg.style.top) dlg.style.top = `${rect.top}px`;
+
+      startLeft = parseFloat(dlg.style.left || "0");
+      startTop = parseFloat(dlg.style.top || "0");
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!dragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      dlg.style.left = `${startLeft + dx}px`;
+      dlg.style.top = `${startTop + dy}px`;
+    };
+
+    const onMouseUp = () => {
+      dragging = false;
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+
+    handle.addEventListener("mousedown", onMouseDown);
+    return () => handle.removeEventListener("mousedown", onMouseDown);
+  }, [dlgRef, handleRef]);
+}
+
 export default function NewInstallation() {
   const map = useMap();
   const previewRef = useRef<L.Polygon | null>(null);
@@ -48,16 +116,15 @@ export default function NewInstallation() {
   const [code, setCode] = useState("");
   const [powerMax, setPowerMax] = useState<string>("");
   const [powerAvg, setPowerAvg] = useState<string>("");
-  const [vertices, setVertices] = useState<number>(3);
-  const [coords, setCoords] = useState<Coord[]>([
-    { lon: "", lat: "" },
-    { lon: "", lat: "" },
-    { lon: "", lat: "" },
-  ]);
+  const [vertices, setVertices] = useState<number>(5);
+  const [coords, setCoords] = useState<Coord[]>(Array.from({ length: 5 }, () => ({ lon: "", lat: "" })));
 
   const [csvText, setCsvText] = useState<string>("");
 
   const dlgRef = useRef<HTMLDialogElement>(null);
+  const handleRef = useRef<HTMLDivElement>(null);
+  useDraggableDialog(dlgRef, handleRef);
+
   const open = () => dlgRef.current?.showModal();
 
   const clearPreview = () => {
@@ -72,21 +139,17 @@ export default function NewInstallation() {
     dlgRef.current?.close();
   };
 
-  const toLatLngs = (list: Coord[]) =>
-    list.map((c) => L.latLng(Number(c.lat), Number(c.lon)));
+  const toLatLngs = (list: Coord[]) => list.map((c) => L.latLng(Number(c.lat), Number(c.lon)));
 
   const drawPreview = (list: Coord[]) => {
     clearPreview();
     if (list.length < 3) return;
-
-    // Γρήγορο validation πριν το draw
     for (const c of list) {
       const lon = Number(c.lon);
       const lat = Number(c.lat);
       if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
       if (lon < -180 || lon > 180 || lat < -90 || lat > 90) return;
     }
-
     previewRef.current = L.polygon(toLatLngs(list), {
       color: "#ff9800",
       weight: 2,
@@ -97,9 +160,7 @@ export default function NewInstallation() {
 
     try {
       map.fitBounds(previewRef.current.getBounds(), { padding: [20, 20] });
-    } catch {
-      // ignore
-    }
+    } catch { /* noop */ }
   };
 
   const onChangeVertices = (n: number) => {
@@ -190,7 +251,7 @@ export default function NewInstallation() {
         alert("Insert failed: " + txt);
         return;
       }
-      close(); // κλείσιμο modal + καθάρισμα preview
+      close();
       window.dispatchEvent(new CustomEvent("reload-installations"));
     } catch (error: any) {
       alert("Network error: " + (error?.message ?? "unknown"));
@@ -217,10 +278,22 @@ export default function NewInstallation() {
         NEW INSTALLATION
       </button>
 
-      <dialog ref={dlgRef} style={{ width: 640, padding: 16 }}>
-        <form onSubmit={onSubmit}>
-          <h3 style={{ marginTop: 0 }}>New Installation</h3>
+      <dialog ref={dlgRef} style={{ width: 700, padding: 0, border: "1px solid #999" }}>
+        {/* draggable header */}
+        <div
+          ref={handleRef}
+          style={{
+            background: "#1976d2",
+            color: "white",
+            padding: "8px 12px",
+            cursor: "move",
+            userSelect: "none",
+          }}
+        >
+          New Installation
+        </div>
 
+        <form onSubmit={onSubmit} style={{ padding: 16 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
             <label>
               Code<br />
@@ -228,12 +301,7 @@ export default function NewInstallation() {
             </label>
             <label>
               Vertices (≥3)<br />
-              <input
-                type="number"
-                min={3}
-                value={vertices}
-                onChange={(e) => onChangeVertices(Number(e.target.value))}
-              />
+              <input type="number" min={3} value={vertices} onChange={(e) => onChangeVertices(Number(e.target.value))} />
             </label>
             <label>
               Power Max<br />
@@ -247,23 +315,22 @@ export default function NewInstallation() {
 
           <hr />
 
-          {/* CSV Paste panel */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
             <div>
               <b>Paste lon,lat (ένα ζεύγος ανά γραμμή)</b>
               <div style={{ fontSize: 12, opacity: 0.8 }}>
-                Παραδείγματα: <code>21.50,40.30</code> ή <code>21.50;40.30</code> ή <code>21.50 40.30</code>
+                Παραδείγματα: <code>21.50,40.30</code> ή <code>21.50;40.30</code> ή <code>21.50 40.30</code> — δέχεται και
+                δεκαδικό κόμμα (π.χ. <code>21,50</code>).
               </div>
             </div>
             <textarea
               rows={6}
-              placeholder={`lon,lat
-21.50,40.30
-21.60,40.30
-21.60,40.40`}
               value={csvText}
               onChange={(e) => setCsvText(e.target.value)}
               style={{ width: "100%" }}
+              placeholder={`21,770 40,350
+21,780 40,352
+21,790 40,355`}
             />
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button type="button" onClick={pasteFromClipboard}>Paste from Clipboard</button>
@@ -279,7 +346,6 @@ export default function NewInstallation() {
 
           <hr />
 
-          {/* Manual inputs preview/edit */}
           <div>
             <b>Coordinates (lon, lat)</b>
             <div style={{ maxHeight: 240, overflow: "auto", marginTop: 8 }}>
