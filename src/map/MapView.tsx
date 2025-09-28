@@ -1,30 +1,38 @@
-import { MapContainer, TileLayer, useMap } from "react-leaflet";
+// src/map/MapView.tsx
+import { MapContainer, TileLayer, ZoomControl, ScaleControl } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import "leaflet-draw/dist/leaflet.draw.css";
-import InstallationsLayer from "../layers/InstallationsLayer";
+import InstallationsLayer from "./InstallationsLayer";
 import NewInstallation from "../ui/NewInstallation";
 
-function LayersAndUI() {
-  // bridge: μετατρέπουμε το window event σε leaflet event
-  const map = useMap();
-  // άκουσε το custom event από τη φόρμα:
-  window.addEventListener("reload-installations", () => map.fire("reload-installations"));
-  return (
-    <>
-      <InstallationsLayer />
-      <NewInstallation />
-    </>
-  );
-}
-
 export default function MapView() {
+  // Κεντράρουμε περίπου στην Ελλάδα
+  const center: [number, number] = [39.2, 22.0];
+
   return (
-    <MapContainer center={[38.0, 23.7]} zoom={7} style={{ width: "100%", height: "100vh" }}>
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      <LayersAndUI />
-    </MapContainer>
+    <div style={{ position: "relative", width: "100%", height: "100vh" }}>
+      {/* Χάρτης */}
+      <MapContainer
+        center={center}
+        zoom={7}
+        minZoom={5}
+        maxZoom={18}
+        zoomControl={false}
+        style={{ width: "100%", height: "100%" }}
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+
+        <ScaleControl position="bottomleft" />
+        <ZoomControl position="topright" />
+
+        {/* Layer με φίλτρο Περιφέρειας (control πάνω-αριστερά) */}
+        <InstallationsLayer />
+      </MapContainer>
+
+      {/* Κουμπί + dialog εισαγωγής νέας εγκατάστασης (portal για το dialog) */}
+      <NewInstallation />
+    </div>
   );
 }

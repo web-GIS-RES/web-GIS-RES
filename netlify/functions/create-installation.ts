@@ -1,58 +1,62 @@
+// netlify/functions/create-installation.ts
 import type { Handler } from "@netlify/functions";
+import { createClient } from "@supabase/supabase-js";
+import wellknown from "wellknown"; // αν το χρησιμοποιείς, αλλιώς κάνε δικό σου WKT/GeoJSON
+// (δεν είναι υποχρεωτικό· φτιάχνουμε μόνοι μας το polygon από coords)
 
-const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE!;
-
-// Payload που περιμένουμε από το frontend
-type Payload = {
+type Body = {
   code: string;
   power_max: number;
   power_avg: number;
-  coords: [number, number][]; // [lon,lat] pairs
+  region: string; // Περιφέρεια (string που να ταιριάζει στο ENUM)
+  coords: [number, number][]; // [lon, lat] pairs
 };
 
+const SUPABASE_URL = process.env.SUPABASE_URL!;
+const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE!; // server key
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
+  auth: { persistSession: false }
+});
+
 export const handler: Handler = async (event) => {
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, body: "Method Not Allowed" };
+  }
+
   try {
-    if (event.httpMethod !== "POST") {
-      return { statusCode: 405, body: "Method Not Allowed" };
+    const body = JSON.parse(event.body || "{}") as Body;
+
+    if (!body.code?.trim()) return { statusCode: 400, body: "Missing code" };
+    if (!Array.isArray(body.coords) || body.coords.length < 3) {
+      return { statusCode: 400, body: "Need >= 3 coords" };
     }
+    if (!body.region) return { statusCode: 400, body: "Missing region" };
 
-    const body: Payload = JSON.parse(event.body || "{}");
+    // Κλείσε το δαχτυλίδι αν δεν είναι κλειστό
+    const first = body.coords[0];
+    const last = body.coords[body.coords.length - 1];
+    const closed = last[0] === first[0] && last[1] === first[1];
+    const ring = closed ? body.coords : [...body.coords, first];
 
-    if (
-      !body.code ||
-      !Array.isArray(body.coords) ||
-      body.coords.length < 3 ||
-      typeof body.power_max !== "number" ||
-      typeof body.power_avg !== "number"
-    ) {
-      return { statusCode: 400, body: "Invalid payload" };
-    }
+    // Φτιάξε WKT POLYGON (lon lat)
+    const wkt = `POLYGON((${ring.map(([x, y]) => `${x} ${y}`).join(", ")}))`;
 
-    // Κλήση στο RPC της βάσης
-    const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/fn_insert_installation_json`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: SERVICE_ROLE,
-        Authorization: `Bearer ${SERVICE_ROLE}`,
-      },
-      body: JSON.stringify({
-        p_code: body.code,
-        p_power_max: body.power_max,
-        p_power_avg: body.power_avg,
-        p_coords: body.coords,
-      }),
+    // insert
+    const { error } = await supabase.rpc("insert_installation_wkt", {
+      p_code: body.code.trim(),
+      p_power_max: body.power_max,
+      p_power_avg: body.power_avg,
+      p_region: body.region,        // ΝΕΟ
+      p_wkt: wkt
     });
 
-    const text = await resp.text();
-
-    if (!resp.ok) {
-      return { statusCode: resp.status, body: text || "Insert failed" };
+    if (error) {
+      return { statusCode: 400, body: `Insert failed: ${error.message}` };
     }
 
-    return { statusCode: 200, body: text }; // επιστρέφει το id (bigint) σαν string
+    return { statusCode: 200, body: "ok" };
   } catch (err: any) {
-    return { statusCode: 500, body: err?.message ?? "Server error" };
+    return { statusCode: 400, body: err?.message ?? "Bad request" };
   }
 };
