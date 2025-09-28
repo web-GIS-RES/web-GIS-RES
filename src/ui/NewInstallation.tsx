@@ -1,9 +1,5 @@
-// src/ui/NewInstallation.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
-import type L from "leaflet";
-
-type Props = { map: L.Map | null };
 
 const REGIONS = [
   "Ανατολική Μακεδονία και Θράκη",
@@ -23,12 +19,11 @@ const REGIONS = [
 
 type Pair = { lon: string; lat: string };
 
-export default function NewInstallation({ map }: Props) {
+export default function NewInstallation() {
   const dlgRef = useRef<HTMLDialogElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
 
-  // form state
   const [code, setCode] = useState("");
   const [powerMax, setPowerMax] = useState<string>("");
   const [powerAvg, setPowerAvg] = useState<string>("");
@@ -37,10 +32,8 @@ export default function NewInstallation({ map }: Props) {
   const [pairs, setPairs] = useState<Pair[]>([{ lon: "", lat: "" }, { lon: "", lat: "" }, { lon: "", lat: "" }]);
   const [csv, setCsv] = useState("");
 
-  // προσωρινό layer προεπισκόπησης
-  const previewLayer = useRef<L.Layer | null>(null);
+  const previewLayer = useRef<any>(null);
 
-  // --- ανοίγει/κλείνει dialog
   useEffect(() => {
     const d = dlgRef.current;
     if (!d) return;
@@ -48,7 +41,7 @@ export default function NewInstallation({ map }: Props) {
     if (!open && d.open) d.close();
   }, [open]);
 
-  // draggable header (ως προς την οθόνη)
+  // draggable header (ως προς οθόνη)
   useEffect(() => {
     const header = headerRef.current;
     const dlg = dlgRef.current;
@@ -82,7 +75,6 @@ export default function NewInstallation({ map }: Props) {
     };
   }, []);
 
-  // συγχρονισμός πλήθους κορυφών με inputs
   useEffect(() => {
     setPairs((prev) => {
       const next = [...prev];
@@ -95,7 +87,6 @@ export default function NewInstallation({ map }: Props) {
     });
   }, [vertices]);
 
-  // Parse csv (δέχεται και ελληνικούς δεκαδικούς με κόμμα)
   const parseCsv = () => {
     const lines = csv
       .split(/\r?\n/)
@@ -103,7 +94,6 @@ export default function NewInstallation({ map }: Props) {
       .filter(Boolean);
     const parsed: Pair[] = [];
     for (const line of lines) {
-      // 21,770 40,350  ή  21.770,40.350  ή  21.770 40.350
       const parts = line.replace(/;/g, " ").replace(/,/g, ".").split(/\s+/);
       if (parts.length < 2) continue;
       const lon = parts[0], lat = parts[1];
@@ -120,54 +110,45 @@ export default function NewInstallation({ map }: Props) {
     }
   };
 
-  // χτίσιμο WKT από ζεύγη
   const toWKT = (pp: Pair[]) => {
     const coords = pp.map((p) => `${Number(p.lon)} ${Number(p.lat)}`);
-    if (coords[0] !== coords[coords.length - 1]) coords.push(coords[0]); // κλείσιμο
+    if (coords[0] !== coords[coords.length - 1]) coords.push(coords[0]);
     return `POLYGON((${coords.join(", ")}))`;
   };
 
-  // Προεπισκόπηση πάνω στον χάρτη
   const previewFromInputs = (pp: Pair[] = pairs) => {
-    if (!map) return;
+    const map = (window as any).__leafletMap;
+    const L = (window as any).L;
+    if (!map || !L) return; // προαιρετική προεπισκόπηση
     try {
-      // καθάρισε παλιά
       if (previewLayer.current) {
-        map.removeLayer(previewLayer.current as any);
+        map.removeLayer(previewLayer.current);
         previewLayer.current = null;
       }
-      // έλεγξε τιμές
       const pts = pp
-        .map((p) => [Number(p.lat), Number(p.lon)] as [number, number])
+        .map((p) => [Number(p.lat), Number(p.lon)])
         .filter(([la, lo]) => isFinite(la) && isFinite(lo));
       if (pts.length < 3) return;
 
-      const poly = (window as any).L?.polygon(pts, {
-        weight: 2,
-        opacity: 1,
-        fillOpacity: 0.15,
-      });
-      if (poly) {
-        poly.addTo(map);
-        previewLayer.current = poly;
-        const b = poly.getBounds();
-        if (b.isValid()) map.fitBounds(b, { padding: [20, 20] });
-      }
+      const poly = L.polygon(pts, { weight: 2, opacity: 1, fillOpacity: 0.15 });
+      poly.addTo(map);
+      previewLayer.current = poly;
+      const b = poly.getBounds();
+      if (b.isValid()) map.fitBounds(b, { padding: [20, 20] });
     } catch (e) {
       console.error("Preview error:", e);
     }
   };
 
-  // καθάρισε preview όταν κλείνει
   useEffect(() => {
     if (open) return;
+    const map = (window as any).__leafletMap;
     if (map && previewLayer.current) {
-      map.removeLayer(previewLayer.current as any);
+      map.removeLayer(previewLayer.current);
       previewLayer.current = null;
     }
-  }, [open, map]);
+  }, [open]);
 
-  // Submit → Netlify Function
   const onSubmit = async () => {
     if (!code.trim()) return alert("Δώσε κωδικό εγκατάστασης.");
     const nums = pairs
@@ -175,9 +156,7 @@ export default function NewInstallation({ map }: Props) {
       .filter((p) => isFinite(p.lon) && isFinite(p.lat));
     if (nums.length < 3) return alert("Χρειάζονται τουλάχιστον 3 έγκυρα σημεία.");
 
-    const wkt = toWKT(
-      nums.map((n) => ({ lon: String(n.lon), lat: String(n.lat) }))
-    );
+    const wkt = toWKT(nums.map((n) => ({ lon: String(n.lon), lat: String(n.lat) })));
 
     const body = {
       code: code.trim(),
@@ -194,12 +173,12 @@ export default function NewInstallation({ map }: Props) {
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(await res.text());
-      // refresh χάρτη
       window.dispatchEvent(new Event("reload-installations"));
       setOpen(false);
-      // καθάρισε preview
+
+      const map = (window as any).__leafletMap;
       if (map && previewLayer.current) {
-        map.removeLayer(previewLayer.current as any);
+        map.removeLayer(previewLayer.current);
         previewLayer.current = null;
       }
     } catch (e: any) {
@@ -207,20 +186,12 @@ export default function NewInstallation({ map }: Props) {
     }
   };
 
-  // Portal target
   const portalTarget = useMemo(() => document.body, []);
 
-  // UI
   const form = (
     <>
       <button
-        style={{
-          position: "fixed",
-          right: 12,
-          top: 12,
-          zIndex: 1000,
-          padding: "8px 12px",
-        }}
+        style={{ position: "fixed", right: 12, top: 12, zIndex: 1000, padding: "8px 12px" }}
         onClick={() => setOpen(true)}
       >
         NEW INSTALLATION
@@ -268,8 +239,8 @@ export default function NewInstallation({ map }: Props) {
         />
         <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
           <button onClick={parseCsv}>Parse CSV → Preview on map</button>
-          <button onClick={() => previewFromInputs()}>Preview from inputs</button>
           <button onClick={() => { setCsv(""); }}>Clear</button>
+          <button onClick={() => previewFromInputs()}>Preview from inputs</button>
         </div>
 
         <div style={{ marginTop: 10, fontWeight: 600 }}>Coordinates (lon, lat)</div>
@@ -281,9 +252,7 @@ export default function NewInstallation({ map }: Props) {
                 value={p.lon}
                 onChange={(e) => {
                   const v = e.target.value;
-                  setPairs((prev) => {
-                    const next = [...prev]; next[i] = { ...next[i], lon: v }; return next;
-                  });
+                  setPairs((prev) => { const next = [...prev]; next[i] = { ...next[i], lon: v }; return next; });
                 }}
               />
               <input
@@ -291,9 +260,7 @@ export default function NewInstallation({ map }: Props) {
                 value={p.lat}
                 onChange={(e) => {
                   const v = e.target.value;
-                  setPairs((prev) => {
-                    const next = [...prev]; next[i] = { ...next[i], lat: v }; return next;
-                  });
+                  setPairs((prev) => { const next = [...prev]; next[i] = { ...next[i], lat: v }; return next; });
                 }}
               />
             </div>
