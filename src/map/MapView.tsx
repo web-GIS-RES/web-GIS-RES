@@ -1,4 +1,6 @@
+// src/map/MapView.tsx
 import { MapContainer, TileLayer, ZoomControl } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
 import { useState } from "react";
 import InstallationsLayer from "./InstallationsLayer";
 import NewInstallation from "../ui/NewInstallation";
@@ -18,31 +20,37 @@ const REGIONS = [
   "Βόρειο Αιγαίο",
   "Νότιο Αιγαίο",
   "Κρήτη",
-];
+] as const;
 
 export default function MapView() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedRegion, setSelectedRegion] = useState<string>("ΟΛΕΣ");
   const [showForm, setShowForm] = useState(false);
 
+  const bump = () => setRefreshKey((k) => k + 1);
+
   return (
-    <div style={{ width: "100%", height: "100%" }}>
-      {/* Region selector (πάνω αριστερά, δεξιά από τα zoom) */}
+    <div style={{ position: "relative", width: "100%", height: "100vh" }}>
+      {/* Dropdown Περιφέρειας: πάνω-αριστερά, δεξιά από τα zoom controls */}
       <div
         style={{
           position: "absolute",
           top: 10,
-          left: 58, // λίγο δεξιά από τα zoom controls
+          left: 58,
           zIndex: 1000,
           background: "rgba(255,255,255,0.9)",
-          padding: "4px 6px",
-          borderRadius: 4,
-          boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+          border: "1px solid #ccc",
+          borderRadius: 6,
+          padding: "4px 8px",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+          pointerEvents: "auto",
         }}
       >
+        <label style={{ fontSize: 12, marginRight: 6 }}>Περιφέρεια:</label>
         <select
           value={selectedRegion}
           onChange={(e) => setSelectedRegion(e.target.value)}
+          style={{ fontSize: 12, padding: "4px 6px" }}
         >
           {REGIONS.map((r) => (
             <option key={r} value={r}>
@@ -52,16 +60,28 @@ export default function MapView() {
         </select>
       </div>
 
-      {/* NEW INSTALLATION button (πάνω δεξιά) */}
+      {/* NEW INSTALLATION button: πάνω-δεξιά */}
       <div
         style={{
           position: "absolute",
           top: 10,
           right: 10,
           zIndex: 1000,
+          pointerEvents: "auto",
         }}
       >
-        <button onClick={() => setShowForm(true)}>NEW INSTALLATION</button>
+        <button
+          onClick={() => setShowForm(true)}
+          style={{
+            padding: "6px 10px",
+            borderRadius: 6,
+            border: "1px solid #ccc",
+            background: "#fff",
+            cursor: "pointer",
+          }}
+        >
+          NEW INSTALLATION
+        </button>
       </div>
 
       <MapContainer
@@ -75,18 +95,24 @@ export default function MapView() {
         <ZoomControl position="topleft" />
 
         <TileLayer
-          attribution='&copy; OpenStreetMap contributors'
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        {/* ΠΕΡΝΑΜΕ selectedRegion (όχι region) */}
-        <InstallationsLayer refreshKey={refreshKey} selectedRegion={selectedRegion} />
+        {/* Περάσματα προς τη στρώση */}
+        <InstallationsLayer
+          refreshKey={refreshKey}
+          selectedRegion={selectedRegion}
+        />
       </MapContainer>
 
       {showForm && (
         <NewInstallation
           onClose={() => setShowForm(false)}
-          onCreated={() => setRefreshKey((k) => k + 1)}
+          onCreated={() => {
+            setShowForm(false);
+            bump(); // ανανέωση layer ώστε να εμφανιστεί αμέσως το νέο πολύγωνο
+          }}
         />
       )}
     </div>
