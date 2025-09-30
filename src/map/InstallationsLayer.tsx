@@ -1,4 +1,3 @@
-// src/map/InstallationsLayer.tsx
 import { useEffect, useRef } from "react";
 import { useMap } from "react-leaflet";
 import type { GeoJSON as LeafletGeoJSON } from "leaflet";
@@ -33,8 +32,10 @@ export default function InstallationsLayer({ refreshKey = 0, regionFilter = "ALL
         return;
       }
 
-      // Φέρνουμε FeatureCollection από view π.χ. v_installations_geojson (στήλη data)
-      const url = `${SUPABASE_URL}/rest/v1/v_installations_geojson?select=data`;
+      // Αν το view σου λέγεται αλλιώς, άλλαξε εδώ:
+      // Περιμένουμε ένα row που έχει FeatureCollection σε στήλη "data" ή "feature".
+      let url = `${SUPABASE_URL}/rest/v1/v_installations_geojson?select=*`;
+
       const resp = await fetch(url, {
         headers: {
           apikey: SUPABASE_ANON,
@@ -49,16 +50,23 @@ export default function InstallationsLayer({ refreshKey = 0, regionFilter = "ALL
       }
 
       const rows = await resp.json();
-      const featureCollection = rows?.[0]?.data;
-      if (!featureCollection || featureCollection.type !== "FeatureCollection") {
+
+      // Υποστήριξε διαφορετικές ονομασίες στήλης ή κατευθείαν FC
+      const fc =
+        rows?.[0]?.data ??
+        rows?.[0]?.feature ??
+        (Array.isArray(rows) && rows[0] && rows[0].type === "FeatureCollection" ? rows[0] : undefined);
+
+      if (!fc || fc.type !== "FeatureCollection") {
+        console.warn("No FeatureCollection found (expected column 'data' or 'feature').");
         clearLayer();
         return;
       }
 
-      // Client-side φίλτρο Περιφέρειας (γρήγορο/απλό)
+      // Client-side φίλτρο Περιφέρειας
       const filtered = {
         type: "FeatureCollection",
-        features: featureCollection.features.filter((f: any) => {
+        features: fc.features.filter((f: any) => {
           if (regionFilter === "ALL") return true;
           const p = (f.properties || {}) as InstallProps;
           return (p.region || "") === regionFilter;
@@ -66,12 +74,14 @@ export default function InstallationsLayer({ refreshKey = 0, regionFilter = "ALL
       };
 
       renderLayer(filtered);
+      // Προαιρετικό log για επιβεβαίωση:
+      console.info(
+        `Installations loaded: total=${fc.features?.length ?? 0}, shown=${filtered.features?.length ?? 0}`
+      );
     })().catch((e) => {
       console.error(e);
       clearLayer();
     });
-
-    // ανανέωση σε refreshKey ή αλλαγή φίλτρου
   }, [refreshKey, regionFilter, map]);
 
   function clearLayer() {
