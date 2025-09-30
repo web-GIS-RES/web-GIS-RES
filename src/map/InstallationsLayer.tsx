@@ -1,13 +1,12 @@
+// src/map/InstallationsLayer.tsx
 import { useEffect, useRef } from "react";
-import { GeoJSON, useMap } from "react-leaflet";
+import { useMap } from "react-leaflet";
 import type { GeoJSON as LeafletGeoJSON } from "leaflet";
 import L from "leaflet";
 
-// Αντλεί τα env για Supabase REST (αν το χρησιμοποιείς)
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
-// Τύπος ιδιοτήτων feature (προσαρμοσε στα δικά σου)
 type InstallProps = {
   id: number;
   code: string;
@@ -27,21 +26,15 @@ export default function InstallationsLayer({ refreshKey = 0, regionFilter = "ALL
   const layerRef = useRef<LeafletGeoJSON | null>(null);
 
   useEffect(() => {
-    let abort = false;
-
-    async function load() {
-      // 1) Φέρε GeoJSON από τη view σου
-      // Παραδοχή: υπάρχει view π.χ. v_installations_geojson με πεδίο data (FeatureCollection)
-      // Αν δεν υπάρχει, προσαρμόζεις το endpoint / format fetch
+    (async function load() {
       if (!SUPABASE_URL || !SUPABASE_ANON) {
-        console.warn("Missing Supabase env, falling back to no-data.");
+        console.warn("Missing Supabase env, no installations will load.");
         clearLayer();
         return;
       }
 
-      // Παράδειγμα: PostgREST: select=data (ένα μόνο row με FeatureCollection)
+      // Φέρνουμε FeatureCollection από view π.χ. v_installations_geojson (στήλη data)
       const url = `${SUPABASE_URL}/rest/v1/v_installations_geojson?select=data`;
-
       const resp = await fetch(url, {
         headers: {
           apikey: SUPABASE_ANON,
@@ -62,7 +55,7 @@ export default function InstallationsLayer({ refreshKey = 0, regionFilter = "ALL
         return;
       }
 
-      // 2) Client-side φίλτρο με βάση την περιφέρεια (γρήγορο & ασφαλές)
+      // Client-side φίλτρο Περιφέρειας (γρήγορο/απλό)
       const filtered = {
         type: "FeatureCollection",
         features: featureCollection.features.filter((f: any) => {
@@ -72,20 +65,13 @@ export default function InstallationsLayer({ refreshKey = 0, regionFilter = "ALL
         }),
       };
 
-      // 3) Ζωγράφισε/ανανεώσε το GeoJSON layer
       renderLayer(filtered);
-    }
-
-    load().catch((e) => {
+    })().catch((e) => {
       console.error(e);
       clearLayer();
     });
 
-    return () => {
-      abort = true;
-    };
-
-    // Σκανάρει σε refreshKey (π.χ. μετά από νέα εισαγωγή) & regionFilter
+    // ανανέωση σε refreshKey ή αλλαγή φίλτρου
   }, [refreshKey, regionFilter, map]);
 
   function clearLayer() {
@@ -105,7 +91,10 @@ export default function InstallationsLayer({ refreshKey = 0, regionFilter = "ALL
         const code = p.code ?? "—";
         const max = p.power_max ?? "—";
         const avg = p.power_avg ?? "—";
-        const area = p.area_m2 != null ? `${new Intl.NumberFormat("el-GR").format(Math.round(p.area_m2))} m²` : "—";
+        const area =
+          p.area_m2 != null
+            ? `${new Intl.NumberFormat("el-GR").format(Math.round(p.area_m2))} m²`
+            : "—";
         const reg = p.region ?? "—";
 
         l.bindTooltip(
@@ -125,6 +114,5 @@ export default function InstallationsLayer({ refreshKey = 0, regionFilter = "ALL
     layerRef.current = gj;
   }
 
-  // Δεν επιστρέφουμε React element, το layer μπαίνει απευθείας στο Leaflet map
   return null;
 }
