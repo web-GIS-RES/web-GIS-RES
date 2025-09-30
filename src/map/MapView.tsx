@@ -5,7 +5,7 @@ import { useState } from "react";
 import InstallationsLayer from "./InstallationsLayer";
 import NewInstallation from "../ui/NewInstallation";
 
-const REGIONS = [
+const UI_REGIONS = [
   "ΟΛΕΣ",
   "Ανατολική Μακεδονία και Θράκη",
   "Κεντρική Μακεδονία",
@@ -22,10 +22,17 @@ const REGIONS = [
   "Κρήτη",
 ] as const;
 
+/** Μετατρέπει από την επιλογή UI σε τιμή για το API/layer */
+function toRegionFilter(value: string): string {
+  return value === "ΟΛΕΣ" ? "ALL" : value;
+}
+
 export default function MapView() {
   const [refreshKey, setRefreshKey] = useState(0);
-  const [selectedRegion, setSelectedRegion] = useState<string>("ΟΛΕΣ");
+  const [regionUI, setRegionUI] = useState<string>("ΟΛΕΣ"); // αυτό δείχνουμε στο dropdown
   const [showForm, setShowForm] = useState(false);
+
+  const regionFilter = toRegionFilter(regionUI); // αυτό περνάμε στο layer
 
   const bump = () => setRefreshKey((k) => k + 1);
 
@@ -36,7 +43,7 @@ export default function MapView() {
         style={{
           position: "absolute",
           top: 10,
-          left: 58,
+          left: 58, // λίγο δεξιότερα από τα +/-
           zIndex: 1000,
           background: "rgba(255,255,255,0.9)",
           border: "1px solid #ccc",
@@ -48,11 +55,11 @@ export default function MapView() {
       >
         <label style={{ fontSize: 12, marginRight: 6 }}>Περιφέρεια:</label>
         <select
-          value={selectedRegion}
-          onChange={(e) => setSelectedRegion(e.target.value)}
+          value={regionUI}
+          onChange={(e) => setRegionUI(e.target.value)}
           style={{ fontSize: 12, padding: "4px 6px" }}
         >
-          {REGIONS.map((r) => (
+          {UI_REGIONS.map((r) => (
             <option key={r} value={r}>
               {r}
             </option>
@@ -95,15 +102,12 @@ export default function MapView() {
         <ZoomControl position="topleft" />
 
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          attribution='&copy; OpenStreetMap contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        {/* Περάσματα προς τη στρώση */}
-        <InstallationsLayer
-          refreshKey={refreshKey}
-          selectedRegion={selectedRegion}
-        />
+        {/* Layer με φίλτρο περιφέρειας (ALL = όλες) και refresh όταν γίνεται INSERT */}
+        <InstallationsLayer refreshKey={refreshKey} regionFilter={regionFilter} />
       </MapContainer>
 
       {showForm && (
@@ -111,7 +115,7 @@ export default function MapView() {
           onClose={() => setShowForm(false)}
           onCreated={() => {
             setShowForm(false);
-            bump(); // ανανέωση layer ώστε να εμφανιστεί αμέσως το νέο πολύγωνο
+            bump(); // άμεσο refresh για να εμφανιστεί το νέο πολύγωνο χωρίς reload
           }}
         />
       )}
