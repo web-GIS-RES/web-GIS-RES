@@ -50,7 +50,7 @@ export default function MapView() {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        <InstallationsLayer refreshKey={refreshKey} regionFilter={regionFilter} />
+        <InstallationsLayer refreshKey={refreshKey} selectedRegion={region} />
       </MapContainer>
 
       {/* Dropdown φίλτρο περιφέρειας — επάνω αριστερά, δεξιότερα από τα zoom controls */}
