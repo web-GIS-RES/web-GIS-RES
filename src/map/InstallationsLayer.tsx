@@ -1,105 +1,120 @@
 // src/map/InstallationsLayer.tsx
-import { useEffect, useMemo, useState } from "react";
-import { GeoJSON } from "react-leaflet";
-import type { Feature, FeatureCollection, Geometry } from "geojson";
+import { useEffect, useRef } from "react";
+import { useMap } from "react-leaflet";
+import L from "leaflet";
+import type { Feature, FeatureCollection } from "geojson";
 import { supabase } from "../supabaseClient";
 
-type Props = {
-  refreshKey?: number;
-  /** "ALL" για όλες ή ακριβές όνομα περιφέρειας (π.χ. "Δυτική Μακεδονία") */
-  regionFilter?: string | null;
-};
+export type RegionName =
+  | "ALL"
+  | "Ανατολική Μακεδονία και Θράκη"
+  | "Κεντρική Μακεδονία"
+  | "Δυτική Μακεδονία"
+  | "Ήπειρος"
+  | "Θεσσαλία"
+  | "Ιόνιες Νήσοι"
+  | "Δυτική Ελλάδα"
+  | "Στερεά Ελλάδα"
+  | "Αττική"
+  | "Πελοπόννησος"
+  | "Βόρειο Αιγαίο"
+  | "Νότιο Αιγαίο"
+  | "Κρήτη";
 
-type Row = {
-  id?: number;
-  feature: Feature<Geometry, any>; // από το view v_installations_geojson
-};
+interface Props {
+  refreshKey: number;
+  regionFilter: RegionName;
+}
 
-export default function InstallationsLayer({
-  refreshKey = 0,
-  regionFilter = "ALL",
-}: Props) {
-  const [features, setFeatures] = useState<Feature<Geometry, any>[]>([]);
+export default function InstallationsLayer({ refreshKey, regionFilter }: Props) {
+  const map = useMap();
+  const layerRef = useRef<L.GeoJSON | null>(null);
 
   useEffect(() => {
-    let alive = true;
+    let cancelled = false;
 
-    (async () => {
-      const { data, error } = await supabase
-        .from("v_installations_geojson")
-        .select("id,feature");
-
-      if (error) {
-        console.error("Error fetching v_installations_geojson:", error);
-        return;
+    async function load() {
+      // Καθαρισμός παλιού layer πριν από νέο fetch
+      if (layerRef.current) {
+        map.removeLayer(layerRef.current);
+        layerRef.current = null;
       }
 
-      if (!alive || !Array.isArray(data)) return;
+      // Βασικό query
+      let query = supabase.from("v_installations_geojson").select("id, feature");
 
-      // Βεβαιώνουμε ότι παίρνουμε μόνο έγκυρα Feature objects
-      const feats: Feature<Geometry, any>[] = data
-        .map((r: Row) => r?.feature)
-        .filter((f): f is Feature<Geometry, any> => !!f && f.type === "Feature");
+      // Φίλτρο περιφέρειας (εκτός από ALL)
+      if (regionFilter && regionFilter !== "ALL") {
+        // JSONB contains στη στήλη feature->properties
+        // (υποστηρίζεται από PostgREST/Supabase)
+        query = (query as any).contains("feature->properties", {
+          region: regionFilter,
+        });
+      }
 
-      setFeatures(feats);
-    })();
+      const { data, error } = await query;
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error("Supabase load error:", error);
+        return;
+      }
+      if (!data || data.length === 0) {
+        return; // τίποτα να εμφανιστεί
+      }
+
+      // Μετατροπή σε FeatureCollection
+      const fc: FeatureCollection = {
+        type: "FeatureCollection",
+        features: data.map((row: any) => row.feature as Feature),
+      };
+
+      // Δημιουργία GeoJSON layer
+      const geo = L.geoJSON(fc as any, {
+        style: () => ({
+          color: "#d33",
+          weight: 2,
+          opacity: 1,
+          fillOpacity: 0.15,
+        }),
+        onEachFeature: (f: any, l: L.Layer) => {
+          const p = (f?.properties ?? {}) as any;
+          const code = p.code ?? "—";
+          const max = p.power_max ?? p.powerMax ?? "—";
+          const avg = p.power_avg ?? p.powerAvg ?? "—";
+          const area = p.area_m2 ?? p.area ?? "—";
+
+          const html =
+            `<div style="line-height:1.3">` +
+            `<div><b>${code}</b></div>` +
+            `<div>Max: ${Number(max).toLocaleString()} kWh</div>` +
+            `<div>Avg: ${Number(avg).toLocaleString()} kWh</div>` +
+            `<div>Area: ${Number(area).toLocaleString()} m²</div>` +
+            `</div>`;
+
+          (l as L.Path).bindTooltip(html, {
+            direction: "center",
+            opacity: 0.9,
+            sticky: false,
+          });
+        },
+      });
+
+      geo.addTo(map);
+      layerRef.current = geo;
+    }
+
+    load();
 
     return () => {
-      alive = false;
+      cancelled = true;
+      if (layerRef.current) {
+        map.removeLayer(layerRef.current);
+        layerRef.current = null;
+      }
     };
-  }, [refreshKey]);
+  }, [map, refreshKey, regionFilter]);
 
-  // Client-side filter ανά περιφέρεια από properties.region
-  const filteredFeatures = useMemo(() => {
-    if (!regionFilter || regionFilter === "ALL") return features;
-    const target = regionFilter.trim().toLowerCase();
-    return features.filter((f) => {
-      const reg = (f.properties?.region ?? "").toString().trim().toLowerCase();
-      return reg === target;
-    });
-  }, [features, regionFilter]);
-
-  // Φτιάχνουμε αυστηρά τυποποιημένο FeatureCollection για το GeoJSON layer
-  const fc: FeatureCollection<Geometry, any> = useMemo(
-    () => ({
-      type: "FeatureCollection",
-      features: filteredFeatures,
-    }),
-    [filteredFeatures]
-  );
-
-  return (
-    <GeoJSON
-      key={refreshKey}
-      data={fc as any} // το react-leaflet δέχεται GeoJsonObject — κάνουμε cast για ησυχία στον TS
-      style={() => ({
-        color: "#d33",
-        weight: 2,
-        opacity: 1,
-        fillOpacity: 0.15,
-      })}
-      onEachFeature={(feature, layer) => {
-        const p = (feature.properties ?? {}) as any;
-        const code = p.code ?? "—";
-        const pmax =
-          p.power_max != null ? `${Number(p.power_max).toLocaleString("el-GR")} kWh` : "—";
-        const pavg =
-          p.power_avg != null ? `${Number(p.power_avg).toLocaleString("el-GR")} kWh` : "—";
-        const area =
-          p.area_m2 != null ? `${Number(p.area_m2).toLocaleString("el-GR")} m²` : "—";
-        const region = p.region ?? "—";
-
-        layer.bindTooltip(
-          `<div style="line-height:1.2">
-             <b>${code}</b><br/>
-             Max: ${pmax}<br/>
-             Avg: ${pavg}<br/>
-             Area: ${area}<br/>
-             Region: ${region}
-           </div>`,
-          { sticky: true }
-        );
-      }}
-    />
-  );
+  return null;
 }
