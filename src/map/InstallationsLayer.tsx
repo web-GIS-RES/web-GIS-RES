@@ -1,128 +1,121 @@
 import { useEffect, useRef } from "react";
 import { useMap } from "react-leaflet";
-import type { GeoJSON as LeafletGeoJSON } from "leaflet";
-import L from "leaflet";
+import L, { GeoJSON as LeafletGeoJSON } from "leaflet";
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-
-type InstallProps = {
-  id: number;
-  code: string;
-  power_max: number | null;
-  power_avg: number | null;
-  region?: string | null;
-  area_m2?: number | null;
-};
-
+// Αν θέλεις να φιλτράρεις ανά περιφέρεια δώσε prop από το MapView
 type Props = {
-  refreshKey?: number;
-  regionFilter?: string | "ALL";
+  selectedRegion?: string | null; // π.χ. "Δυτική Μακεδονία" ή undefined για όλα
+  refreshKey?: number;            // αν το έχεις στο MapView για force reload
 };
 
-export default function InstallationsLayer({ refreshKey = 0, regionFilter = "ALL" }: Props) {
+type Row = {
+  id: number;
+  feature: any; // GeoJSON Feature (jsonb)
+};
+
+export default function InstallationsLayer({ selectedRegion, refreshKey }: Props) {
   const map = useMap();
   const layerRef = useRef<LeafletGeoJSON | null>(null);
 
   useEffect(() => {
-    (async function load() {
-      if (!SUPABASE_URL || !SUPABASE_ANON) {
-        console.warn("Missing Supabase env, no installations will load.");
-        clearLayer();
-        return;
-      }
+    if (!map) return;
 
-      // Αν το view σου λέγεται αλλιώς, άλλαξε εδώ:
-      // Περιμένουμε ένα row που έχει FeatureCollection σε στήλη "data" ή "feature".
-      let url = `${SUPABASE_URL}/rest/v1/v_installations_geojson?select=*`;
-
-      const resp = await fetch(url, {
-        headers: {
-          apikey: SUPABASE_ANON,
-          Authorization: `Bearer ${SUPABASE_ANON}`,
-        },
-      });
-
-      if (!resp.ok) {
-        console.error("Failed to fetch installations:", await resp.text());
-        clearLayer();
-        return;
-      }
-
-      const rows = await resp.json();
-
-      // Υποστήριξε διαφορετικές ονομασίες στήλης ή κατευθείαν FC
-      const fc =
-        rows?.[0]?.data ??
-        rows?.[0]?.feature ??
-        (Array.isArray(rows) && rows[0] && rows[0].type === "FeatureCollection" ? rows[0] : undefined);
-
-      if (!fc || fc.type !== "FeatureCollection") {
-        console.warn("No FeatureCollection found (expected column 'data' or 'feature').");
-        clearLayer();
-        return;
-      }
-
-      // Client-side φίλτρο Περιφέρειας
-      const filtered = {
-        type: "FeatureCollection",
-        features: fc.features.filter((f: any) => {
-          if (regionFilter === "ALL") return true;
-          const p = (f.properties || {}) as InstallProps;
-          return (p.region || "") === regionFilter;
+    // Δημιουργώ ένα κενό GeoJSON layer αν δεν υπάρχει
+    if (!layerRef.current) {
+      layerRef.current = L.geoJSON(undefined, {
+        style: () => ({
+          color: "#d33",
+          weight: 2,
+          opacity: 1,
+          fillOpacity: 0.15,
         }),
-      };
-
-      renderLayer(filtered);
-      // Προαιρετικό log για επιβεβαίωση:
-      console.info(
-        `Installations loaded: total=${fc.features?.length ?? 0}, shown=${filtered.features?.length ?? 0}`
-      );
-    })().catch((e) => {
-      console.error(e);
-      clearLayer();
-    });
-  }, [refreshKey, regionFilter, map]);
-
-  function clearLayer() {
-    if (layerRef.current) {
-      layerRef.current.remove();
-      layerRef.current = null;
+        onEachFeature: (f: any, l) => {
+          const p = f?.properties ?? {};
+          const code = p.code ?? "—";
+          const pmax = p.power_max != null ? `${p.power_max.toLocaleString("el-GR")} kWh` : "—";
+          const pavg = p.power_avg != null ? `${p.power_avg.toLocaleString("el-GR")} kWh` : "—";
+          const area = p.area_m2 != null ? `${p.area_m2.toLocaleString("el-GR")} m²` : "—";
+          const region = p.region ?? "—";
+          l.bindTooltip(
+            `<div style="line-height:1.2">
+               <b>${code}</b><br/>
+               Max: ${pmax}<br/>
+               Avg: ${pavg}<br/>
+               Area: ${area}<br/>
+               Region: ${region}
+             </div>`,
+            { sticky: true }
+          );
+        },
+      }).addTo(map);
     }
-  }
 
-  function renderLayer(geojson: any) {
-    clearLayer();
+    const ctrl = new AbortController();
 
-    const gj = L.geoJSON(geojson, {
-      style: () => ({ color: "#d33", weight: 2, opacity: 0.9, fillOpacity: 0.2 }),
-      onEachFeature: (f, l) => {
-        const p = (f.properties || {}) as InstallProps;
-        const code = p.code ?? "—";
-        const max = p.power_max ?? "—";
-        const avg = p.power_avg ?? "—";
-        const area =
-          p.area_m2 != null
-            ? `${new Intl.NumberFormat("el-GR").format(Math.round(p.area_m2))} m²`
-            : "—";
-        const reg = p.region ?? "—";
+    (async () => {
+      try {
+        const baseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+        const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
-        l.bindTooltip(
-          `<div style="line-height:1.3">
-            <div style="font-weight:700">${code}</div>
-            <div>Max: ${max} kWh</div>
-            <div>Avg: ${avg} kWh</div>
-            <div>Area: ${area}</div>
-            <div>Region: ${reg}</div>
-          </div>`,
-          { sticky: true, direction: "center", opacity: 0.85 }
-        );
-      },
-    });
+        // Ζητάμε id,feature από το view που έδειξες
+        const url = `${baseUrl}/rest/v1/v_installations_geojson?select=id,feature`;
 
-    gj.addTo(map);
-    layerRef.current = gj;
-  }
+        const res = await fetch(url, {
+          headers: {
+            apikey: anon,
+            Authorization: `Bearer ${anon}`,
+            "Content-Type": "application/json",
+          },
+          signal: ctrl.signal,
+        });
+
+        if (!res.ok) {
+          console.error("Installations fetch failed", await res.text());
+          return;
+        }
+
+        const rows = (await res.json()) as Row[];
+
+        // Κάθε row.feature είναι Feature. Συναρμολογώ FeatureCollection
+        let features = rows
+          .map((r) => r.feature)
+          .filter((f) => f && f.type === "Feature");
+
+        // Προαιρετικό client-side filtering ανά περιφέρεια
+        if (selectedRegion && selectedRegion !== "ΟΛΕΣ") {
+          const target = selectedRegion.trim().toLowerCase();
+          features = features.filter((f) => {
+            const reg = (f?.properties?.region ?? "").toString().trim().toLowerCase();
+            return reg === target;
+          });
+        }
+
+        const fc = { type: "FeatureCollection", features };
+
+        // Καθαρίζω & ξαναβάζω τα δεδομένα
+        layerRef.current!.clearLayers();
+        layerRef.current!.addData(fc as any);
+      } catch (err) {
+        if ((err as any)?.name !== "AbortError") {
+          console.error("Installations load error:", err);
+        }
+      }
+    })();
+
+    return () => {
+      ctrl.abort();
+    };
+  }, [map, selectedRegion, refreshKey]);
+
+  // Καθαρισμός αν unmount
+  useEffect(() => {
+    return () => {
+      if (layerRef.current) {
+        layerRef.current.removeFrom(map);
+        layerRef.current = null;
+      }
+    };
+  }, [map]);
 
   return null;
 }
