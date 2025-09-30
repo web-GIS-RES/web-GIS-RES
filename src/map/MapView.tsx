@@ -1,10 +1,10 @@
-import { MapContainer, TileLayer } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
-import InstallationsLayer from "./InstallationsLayer";
+import { MapContainer, TileLayer, ZoomControl } from "react-leaflet";
 import { useState } from "react";
+import InstallationsLayer from "./InstallationsLayer";
 import NewInstallation from "../ui/NewInstallation";
 
 const REGIONS = [
+  "ΟΛΕΣ",
   "Ανατολική Μακεδονία και Θράκη",
   "Κεντρική Μακεδονία",
   "Δυτική Μακεδονία",
@@ -18,71 +18,32 @@ const REGIONS = [
   "Βόρειο Αιγαίο",
   "Νότιο Αιγαίο",
   "Κρήτη",
-] as const;
-
-export type RegionName = (typeof REGIONS)[number] | "ALL";
+];
 
 export default function MapView() {
   const [refreshKey, setRefreshKey] = useState(0);
-  const [regionFilter, setRegionFilter] = useState<RegionName>("ALL");
-
-  const bump = () => setRefreshKey((k) => k + 1);
+  const [selectedRegion, setSelectedRegion] = useState<string>("ΟΛΕΣ");
+  const [showForm, setShowForm] = useState(false);
 
   return (
-    <div
-      style={{
-        position: "relative",
-        width: "100%",
-        height: "100vh",
-        overflow: "hidden",
-      }}
-    >
-      <MapContainer
-        center={[40.300982, 21.789813]}
-        zoom={11}
-        minZoom={9}
-        maxZoom={18}
-        zoomControl={true}
-        style={{ width: "100%", height: "100%" }}
-      >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-
-        <InstallationsLayer refreshKey={refreshKey} selectedRegion={region} />
-      </MapContainer>
-
-      {/* Dropdown φίλτρο περιφέρειας — επάνω αριστερά, δεξιότερα από τα zoom controls */}
+    <div style={{ width: "100%", height: "100%" }}>
+      {/* Region selector (πάνω αριστερά, δεξιά από τα zoom) */}
       <div
         style={{
           position: "absolute",
           top: 10,
-          left: 60, // τα zoom είναι στο ~10px, οπότε 60px το “προσπερνάει”
+          left: 58, // λίγο δεξιά από τα zoom controls
           zIndex: 1000,
-          background: "rgba(255,255,255,0.85)",
-          border: "1px solid #ccc",
-          borderRadius: 6,
-          padding: "4px 8px",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
-          pointerEvents: "auto",
+          background: "rgba(255,255,255,0.9)",
+          padding: "4px 6px",
+          borderRadius: 4,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
         }}
       >
-        <label style={{ fontSize: 12, color: "#333", marginRight: 6 }}>
-          Περιφέρεια:
-        </label>
         <select
-          value={regionFilter}
-          onChange={(e) => setRegionFilter(e.target.value as RegionName)}
-          style={{
-            fontSize: 12,
-            padding: "4px 6px",
-            borderRadius: 4,
-            border: "1px solid #bbb",
-            background: "white",
-          }}
+          value={selectedRegion}
+          onChange={(e) => setSelectedRegion(e.target.value)}
         >
-          <option value="ALL">Όλες</option>
           {REGIONS.map((r) => (
             <option key={r} value={r}>
               {r}
@@ -91,18 +52,43 @@ export default function MapView() {
         </select>
       </div>
 
-      {/* NEW INSTALLATION — επάνω δεξιά, λίγο αριστερά από zoom-out όταν είναι δεξιά */}
+      {/* NEW INSTALLATION button (πάνω δεξιά) */}
       <div
         style={{
           position: "absolute",
           top: 10,
-          right: 60,
+          right: 10,
           zIndex: 1000,
-          pointerEvents: "auto",
         }}
       >
-        <NewInstallation onCreated={bump} />
+        <button onClick={() => setShowForm(true)}>NEW INSTALLATION</button>
       </div>
+
+      <MapContainer
+        center={[40.30, 21.80]}
+        zoom={10}
+        minZoom={5}
+        maxZoom={18}
+        zoomControl={false}
+        style={{ width: "100%", height: "100%" }}
+      >
+        <ZoomControl position="topleft" />
+
+        <TileLayer
+          attribution='&copy; OpenStreetMap contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+
+        {/* ΠΕΡΝΑΜΕ selectedRegion (όχι region) */}
+        <InstallationsLayer refreshKey={refreshKey} selectedRegion={selectedRegion} />
+      </MapContainer>
+
+      {showForm && (
+        <NewInstallation
+          onClose={() => setShowForm(false)}
+          onCreated={() => setRefreshKey((k) => k + 1)}
+        />
+      )}
     </div>
   );
 }
