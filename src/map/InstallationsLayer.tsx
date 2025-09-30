@@ -1,120 +1,71 @@
-// src/map/InstallationsLayer.tsx
-import { useEffect, useRef } from "react";
-import { useMap } from "react-leaflet";
-import L from "leaflet";
-import type { Feature, FeatureCollection } from "geojson";
-import { supabase } from "../supabaseClient";
+import { useEffect } from "react";
+import { GeoJSON } from "react-leaflet";
+import type { FeatureCollection } from "geojson";
+import supabase from "../supabaseClient";
 
-export type RegionName =
-  | "ALL"
-  | "Ανατολική Μακεδονία και Θράκη"
-  | "Κεντρική Μακεδονία"
-  | "Δυτική Μακεδονία"
-  | "Ήπειρος"
-  | "Θεσσαλία"
-  | "Ιόνιες Νήσοι"
-  | "Δυτική Ελλάδα"
-  | "Στερεά Ελλάδα"
-  | "Αττική"
-  | "Πελοπόννησος"
-  | "Βόρειο Αιγαίο"
-  | "Νότιο Αιγαίο"
-  | "Κρήτη";
-
-interface Props {
-  refreshKey: number;
-  regionFilter: RegionName;
-}
+type Props = {
+  refreshKey?: number;
+  /** "ALL" ή το όνομα της περιφέρειας */
+  regionFilter?: string;
+};
 
 export default function InstallationsLayer({ refreshKey, regionFilter }: Props) {
-  const map = useMap();
-  const layerRef = useRef<L.GeoJSON | null>(null);
-
   useEffect(() => {
-    let cancelled = false;
+    let isMounted = true;
 
-    async function load() {
-      // Καθαρισμός παλιού layer πριν από νέο fetch
-      if (layerRef.current) {
-        map.removeLayer(layerRef.current);
-        layerRef.current = null;
-      }
-
-      // Βασικό query
-      let query = supabase.from("v_installations_geojson").select("id, feature");
-
-      // Φίλτρο περιφέρειας (εκτός από ALL)
-      if (regionFilter && regionFilter !== "ALL") {
-        // JSONB contains στη στήλη feature->properties
-        // (υποστηρίζεται από PostgREST/Supabase)
-        query = (query as any).contains("feature->properties", {
-          region: regionFilter,
-        });
-      }
-
-      const { data, error } = await query;
-
-      if (cancelled) return;
-
+    async function loadData() {
+      const { data, error } = await supabase.from("installations").select("*");
       if (error) {
-        console.error("Supabase load error:", error);
+        console.error("Error fetching installations:", error);
         return;
       }
-      if (!data || data.length === 0) {
-        return; // τίποτα να εμφανιστεί
+      if (!isMounted) return;
+
+      let features = (data || []).map((row: any) => ({
+        type: "Feature",
+        geometry: row.geom,
+        properties: {
+          id: row.id,
+          name: row.name,
+          region: row.region,
+        },
+      }));
+
+      // Αν υπάρχει φίλτρο περιφέρειας
+      if (regionFilter && regionFilter !== "ALL") {
+        features = features.filter((f) => f.properties.region === regionFilter);
       }
 
-      // Μετατροπή σε FeatureCollection
-      const fc: FeatureCollection = {
+      const geojson: FeatureCollection = {
         type: "FeatureCollection",
-        features: data.map((row: any) => row.feature as Feature),
+        features: features as any,
       };
 
-      // Δημιουργία GeoJSON layer
-      const geo = L.geoJSON(fc as any, {
-        style: () => ({
-          color: "#d33",
-          weight: 2,
-          opacity: 1,
-          fillOpacity: 0.15,
-        }),
-        onEachFeature: (f: any, l: L.Layer) => {
-          const p = (f?.properties ?? {}) as any;
-          const code = p.code ?? "—";
-          const max = p.power_max ?? p.powerMax ?? "—";
-          const avg = p.power_avg ?? p.powerAvg ?? "—";
-          const area = p.area_m2 ?? p.area ?? "—";
-
-          const html =
-            `<div style="line-height:1.3">` +
-            `<div><b>${code}</b></div>` +
-            `<div>Max: ${Number(max).toLocaleString()} kWh</div>` +
-            `<div>Avg: ${Number(avg).toLocaleString()} kWh</div>` +
-            `<div>Area: ${Number(area).toLocaleString()} m²</div>` +
-            `</div>`;
-
-          (l as L.Path).bindTooltip(html, {
-            direction: "center",
-            opacity: 0.9,
-            sticky: false,
-          });
+      const layer = new (window as any).L.GeoJSON(geojson, {
+        onEachFeature: (feature: any, layer: any) => {
+          if (feature.properties) {
+            layer.bindPopup(
+              `<b>${feature.properties.name}</b><br/>Περιφέρεια: ${feature.properties.region}`
+            );
+          }
         },
       });
 
-      geo.addTo(map);
-      layerRef.current = geo;
+      // Καθαρισμός παλιών geojson layers
+      (window as any).map.eachLayer((l: any) => {
+        if (l instanceof (window as any).L.GeoJSON) {
+          (window as any).map.removeLayer(l);
+        }
+      });
+
+      layer.addTo((window as any).map);
     }
 
-    load();
-
+    loadData();
     return () => {
-      cancelled = true;
-      if (layerRef.current) {
-        map.removeLayer(layerRef.current);
-        layerRef.current = null;
-      }
+      isMounted = false;
     };
-  }, [map, refreshKey, regionFilter]);
+  }, [refreshKey, regionFilter]);
 
   return null;
 }
