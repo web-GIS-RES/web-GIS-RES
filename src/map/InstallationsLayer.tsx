@@ -37,8 +37,8 @@ export default function InstallationsLayer({ refreshKey, regionFilter }: Props) 
           const html =
             `<div style="line-height:1.3">` +
             `<div><b>${code}</b></div>` +
-            `<div>Max: ${Number(max).toLocaleString("el-GR")} kWh</div>` +
-            `<div>Avg: ${Number(avg).toLocaleString("el-GR")} kWh</div>` +
+            `<div>Max: ${Number(max).toLocaleString("el-GR")} kW</div>` +
+            `<div>Avg: ${Number(avg).toLocaleString("el-GR")} kW</div>` +
             `<div>Area: ${Number(area).toLocaleString("el-GR")} m²</div>` +
             `</div>`;
 
