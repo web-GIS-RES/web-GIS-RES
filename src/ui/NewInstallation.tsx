@@ -264,10 +264,10 @@ export default function NewInstallation({
           ))}
         </select>
 
-          <label>Power Max (kWh)</label>
+          <label>Power Max (kW)</label>
           <input inputMode="decimal" value={powerMax} onChange={(e) => setPowerMax(e.target.value)} />
 
-          <label>Power Avg (kWh)</label>
+          <label>Power Avg (kW)</label>
           <input inputMode="decimal" value={powerAvg} onChange={(e) => setPowerAvg(e.target.value)} />
         </div>
 
