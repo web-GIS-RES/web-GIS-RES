@@ -12,7 +12,7 @@ type Body = {
 };
 
 const supabaseUrl = process.env.SUPABASE_URL!;
-const serviceRole = process.env.SUPABASE_SERVICE_ROLE!; // server-only key
+const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY!; // server-only key
 
 const supabase = createClient(supabaseUrl, serviceRole, {
   auth: { persistSession: false },
@@ -24,7 +24,7 @@ const REGIONS = new Set([
   "Δυτική Μακεδονία",
   "Ήπειρος",
   "Θεσσαλία",
-  "Ιόνιες Νήσοι",
+  "Ιόνια Νησιά",
   "Δυτική Ελλάδα",
   "Στερεά Ελλάδα",
   "Αττική",
